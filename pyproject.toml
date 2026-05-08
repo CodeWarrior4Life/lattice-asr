@@ -1,0 +1,97 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lattice-asr"
+version = "0.1.0.dev0"
+description = "Hardware-adaptive multilingual ASR library for the Lattice family. Pluggable engines (Parakeet, Whisper, Distil-Whisper), optional diarization, streaming."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "CodeWarrior4Life" }]
+keywords = [
+    "lattice",
+    "asr",
+    "speech-to-text",
+    "whisper",
+    "parakeet",
+    "diarization",
+    "streaming",
+    "multilingual",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "numpy>=1.24.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+# Engines are optional extras so consumers install only what their hardware uses.
+whisper = [
+    "faster-whisper>=0.10.0",
+]
+parakeet = [
+    # Pinned in W1; placeholder for Parakeet TDT (NVIDIA NeMo) +
+    # parakeet.cpp (Apple Silicon) bindings.
+]
+diarize = [
+    "pyannote.audio>=3.1.0",
+]
+remote = [
+    "httpx>=0.24.0",
+]
+all = [
+    "lattice-asr[whisper,parakeet,diarize,remote]",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "pytest-cov>=4.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/CodeWarrior4Life/lattice-asr"
+Issues = "https://github.com/CodeWarrior4Life/lattice-asr/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM"]
+ignore = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "r_tier: regression tier (fast, mock-based, run on every commit)",
+    "s_tier: smoke tier (real engines, run nightly)",
+    "e_tier: end-to-end tier (real audio, real hardware, opt-in)",
+]
+
+[tool.coverage.run]
+source = ["src/lattice_asr"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 65
+show_missing = true
