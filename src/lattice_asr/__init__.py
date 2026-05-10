@@ -15,6 +15,7 @@ from lattice_asr.types import (
     AsrCallRecord,
     TelemetrySink,
 )
+from lattice_asr.telemetry import NullTelemetrySink, ListTelemetrySink
 
 __all__ = [
     "__version__",
@@ -24,4 +25,6 @@ __all__ = [
     "TranscriptionResult",
     "AsrCallRecord",
     "TelemetrySink",
+    "NullTelemetrySink",
+    "ListTelemetrySink",
 ]
