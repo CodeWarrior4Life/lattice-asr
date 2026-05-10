@@ -44,7 +44,8 @@ parakeet = ["parakeet-cpp-py>=0.1; sys_platform == 'darwin' and platform_machine
 nvidia = ["nemo-toolkit[asr]>=2.0; sys_platform == 'linux'"]
 diarize = ["pyannote.audio>=3.1"]
 remote = ["fastapi>=0.110", "uvicorn[standard]>=0.27"]
-all = ["lattice-asr[whisper,parakeet,nvidia,diarize,remote]"]
+server = ["fastapi>=0.110", "uvicorn[standard]>=0.27", "pydantic>=2.0"]
+all = ["lattice-asr[whisper,parakeet,nvidia,diarize,remote,server]"]
 dev = [
   "pytest>=8.0",
   "pytest-asyncio>=0.23",
@@ -57,6 +58,9 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/CodeWarrior4Life/lattice-asr"
 Issues = "https://github.com/CodeWarrior4Life/lattice-asr/issues"
+
+[project.scripts]
+lattice-asr-server = "lattice_asr_server.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
