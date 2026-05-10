@@ -68,3 +68,15 @@ def test_cuda_below_7_falls_back_to_faster_whisper():
 def test_force_remote_constructs_remote_engine():
     reg = _build_engine_registry(_hw(), force="remote:http://morpheus:5556")
     assert reg["en"].capabilities.name == "remote"
+
+
+@pytest.mark.r_tier
+def test_unknown_force_engine_raises():
+    with pytest.raises(ValueError, match="unknown force_engine"):
+        _build_engine_registry(_hw(), force="nonexistent-engine")
+
+
+@pytest.mark.r_tier
+def test_force_remote_empty_url_raises():
+    with pytest.raises(ValueError, match="requires a URL"):
+        _build_engine_registry(_hw(), force="remote:")

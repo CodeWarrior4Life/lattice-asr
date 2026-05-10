@@ -27,6 +27,8 @@ def _build_engine_registry(
             from lattice_asr.engines.remote import RemoteEngine
 
             url = force.split(":", 1)[1]
+            if not url:
+                raise ValueError("force_engine='remote:' requires a URL, got empty")
             engine = RemoteEngine(url=url)
             return {"en": engine, "multi": engine}
         if force == "parakeet.cpp":
