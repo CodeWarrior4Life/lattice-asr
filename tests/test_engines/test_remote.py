@@ -108,3 +108,65 @@ async def test_api_key_in_authorization_header():
     eng = RemoteEngine(url="http://m", api_key="sek", _transport=httpx.MockTransport(h))
     await eng.transcribe(b"\x00", sample_rate=16000, language="en")
     assert captured["auth"] == "Bearer sek"
+
+
+@pytest.mark.r_tier
+@pytest.mark.asyncio
+async def test_exhausted_retries_raises():
+    """All attempts return 5xx → RemoteEngineError with 'exhausted' message."""
+    call_count = {"n": 0}
+
+    def h(req):
+        call_count["n"] += 1
+        return httpx.Response(503, text="upstream busy")
+
+    eng = RemoteEngine(url="http://m", _transport=httpx.MockTransport(h))
+    with pytest.raises(RemoteEngineError, match="exhausted"):
+        await eng.transcribe(b"\x00", sample_rate=16000, language="en")
+    assert call_count["n"] == 3  # exactly _RETRIES attempts before giving up
+
+
+@pytest.mark.r_tier
+@pytest.mark.asyncio
+async def test_connection_error_retries_then_raises():
+    """httpx.ConnectError on every attempt → retried then RemoteEngineError."""
+    call_count = {"n": 0}
+
+    def h(req):
+        call_count["n"] += 1
+        raise httpx.ConnectError("connection refused")
+
+    eng = RemoteEngine(url="http://m", _transport=httpx.MockTransport(h))
+    with pytest.raises(RemoteEngineError, match="exhausted"):
+        await eng.transcribe(b"\x00", sample_rate=16000, language="en")
+    assert call_count["n"] == 3  # exactly _RETRIES attempts
+
+
+@pytest.mark.r_tier
+@pytest.mark.asyncio
+async def test_transcribe_streaming_buffers_to_one_second_then_flushes_partial():
+    """Streaming buffers to 1s of int16 PCM, yields once at threshold, flushes final partial.
+
+    Three 0.5s chunks → buffer hits 1s after chunk 2 (yield #1) →
+    chunk 3 sits in buffer → stream end flushes final partial (yield #2).
+    """
+    call_count = {"n": 0}
+
+    def h(req):
+        call_count["n"] += 1
+        return _ok_handler(req)
+
+    eng = RemoteEngine(url="http://m", _transport=httpx.MockTransport(h))
+
+    async def chunks():
+        # 16000 bytes = 8000 int16 frames = 0.5s at 16kHz
+        yield b"\x00\x01" * 8000
+        yield b"\x00\x02" * 8000
+        yield b"\x00\x03" * 8000
+
+    results = [
+        r async for r in eng.transcribe_streaming(chunks(), sample_rate=16000, language="en")
+    ]
+    assert len(results) == 2  # one full-second yield + one final-partial yield
+    assert all(r.text == "hello" for r in results)
+    assert call_count["n"] == 2  # one POST per yield
