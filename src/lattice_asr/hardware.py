@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import platform
+import warnings
 from dataclasses import dataclass
 from typing import Literal
 
@@ -59,6 +60,12 @@ def _total_ram_gb() -> float:
             page_size = os.sysconf("SC_PAGE_SIZE")
             return round(pages * page_size / (1024**3), 2)
         except (ValueError, AttributeError, OSError):
+            warnings.warn(
+                "Could not determine total RAM (psutil not installed and os.sysconf unavailable); "
+                "reporting 0.0 GB. Engine selection may be suboptimal.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             return 0.0
 
 
@@ -72,6 +79,19 @@ def detect_hardware() -> HardwareProfile:
     raw_arch = platform.machine()
     os_norm = _OS_MAP.get(raw_os, "linux")
     arch_norm = _ARCH_MAP.get(raw_arch, "x86_64")
+    if raw_os not in _OS_MAP:
+        warnings.warn(
+            f"Unrecognized OS '{raw_os}', defaulting to 'linux'. Engine selection may misroute.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    if raw_arch not in _ARCH_MAP:
+        warnings.warn(
+            f"Unrecognized CPU arch '{raw_arch}', defaulting to 'x86_64'. "
+            "Engine selection may misroute.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     apple_silicon = os_norm == "darwin" and arch_norm == "arm64"
     has_cuda = _has_cuda()
     cap = _cuda_capability() if has_cuda else None
