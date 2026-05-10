@@ -79,7 +79,7 @@ def load_config(path: Path | str | None = None) -> LatticeAsrConfig:
             cfg.model_cache_dir = default_model_cache_dir()
         return cfg
 
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
 
     remote = RemoteConfig(

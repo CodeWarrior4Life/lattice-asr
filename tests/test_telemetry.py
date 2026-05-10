@@ -41,7 +41,7 @@ def test_list_sink_clear():
 
 
 @pytest.mark.r_tier
-def test_call_record_round_trip_via_dict():
+def test_call_record_is_hashable():
     rec = _record()
     s = {rec}
     assert rec in s

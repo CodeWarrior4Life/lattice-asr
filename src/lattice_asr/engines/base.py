@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from lattice_asr.types import EngineCapabilities, TranscriptionResult
 
@@ -28,8 +28,8 @@ class TranscriptionEngine(ABC):
         sample_rate: int,
         language: str | None,
     ) -> AsyncIterator[TranscriptionResult]:
-        if False:
+        if False:  # makes this an async generator (subtype of AsyncIterator)
             yield  # type: ignore[unreachable]  # pragma: no cover
 
     async def warmup(self) -> None:
-        return None
+        pass
