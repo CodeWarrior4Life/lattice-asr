@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import os
 from dataclasses import asdict
@@ -11,12 +12,15 @@ from lattice_asr import Transcriber
 
 _API_VERSION = "v1"
 _transcriber_singleton: Transcriber | None = None
+_transcriber_singleton_lock = asyncio.Lock()
 
 
-def _get_transcriber() -> Transcriber:
+async def _get_transcriber() -> Transcriber:
+    """Lazy-init the singleton Transcriber, lock-guarded against concurrent first-callers."""
     global _transcriber_singleton
-    if _transcriber_singleton is None:
-        _transcriber_singleton = Transcriber()
+    async with _transcriber_singleton_lock:
+        if _transcriber_singleton is None:
+            _transcriber_singleton = Transcriber()
     return _transcriber_singleton
 
 
@@ -58,7 +62,7 @@ def create_app() -> FastAPI:
             audio = base64.b64decode(req.audio_b64)
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"invalid audio_b64: {exc}") from exc
-        t = _get_transcriber()
+        t = await _get_transcriber()
         try:
             result = await t.transcribe(
                 audio,

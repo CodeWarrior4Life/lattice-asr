@@ -1,10 +1,16 @@
+from __future__ import annotations
+
+import os
+
 import uvicorn
 
 from lattice_asr_server.app import create_app
 
 
 def main() -> None:
-    uvicorn.run(create_app(), host="0.0.0.0", port=5556)
+    host = os.environ.get("LATTICE_ASR_HOST", "0.0.0.0")
+    port = int(os.environ.get("LATTICE_ASR_PORT", "5556"))
+    uvicorn.run(create_app(), host=host, port=port)
 
 
 if __name__ == "__main__":
