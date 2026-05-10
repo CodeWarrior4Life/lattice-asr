@@ -14,7 +14,11 @@ class LidResult:
 
 
 class SileroLid:
-    """Wraps Silero language-id model. CPU; <50ms on 1.5s audio."""
+    """Wraps Silero language-id model. CPU; <50ms on 1.5s audio.
+
+    Call ``warmup()`` once at startup; concurrent ``detect()`` calls before
+    warmup completes will redundantly re-trigger ``torch.hub.load``.
+    """
 
     def __init__(self) -> None:
         self._model: Optional[Any] = None
