@@ -95,6 +95,7 @@ class Transcriber:
         force_engine: str | None = None,
         enable_diarization: bool = False,
     ):
+        """Construct hardware-adaptive Transcriber; raises NotImplementedError if enable_diarization=True (v0.1, lands W5)."""
         if enable_diarization:
             raise NotImplementedError(
                 "Diarization is not available in v0.1; it lands in W5. "
@@ -109,20 +110,23 @@ class Transcriber:
         self._engines = _build_engine_registry(
             self._hardware, force_engine or self._config.hardware_force
         )
-        self._lid = SileroLid()
+        self._lid = SileroLid() if self._config.lid.enabled else None
         self._diarizer = None  # loaded lazily in W5
 
     @property
     def hardware(self) -> HardwareProfile:
+        """Detected `HardwareProfile` (OS, arch, accelerator, RAM/cores) used for engine selection."""
         return self._hardware
 
     @property
     def loaded_engines(self) -> dict[str, TranscriptionEngine]:
+        """Map of language route ("en"/"multi") to engine; values may be the same instance on CPU."""
         return dict(self._engines)
 
     async def warmup(self) -> None:
+        """Warm engines and (lazily) the LID detector when `config.lid.enabled` is set."""
         await asyncio.gather(*(e.warmup() for e in set(self._engines.values())))
-        if self._config.lid.enabled:
+        if self._lid is not None:  # equivalent to config.lid.enabled
             await self._lid.warmup()
 
     async def transcribe(
@@ -134,11 +138,12 @@ class Transcriber:
         diarize: bool = False,
         tenant_id: str | None = None,
     ) -> TranscriptionResult:
+        """Transcribe PCM audio; routes via LID-or-explicit (spec §8.2), records telemetry; raises ValueError if diarize=True without enable_diarization=True."""
         if diarize and not self._enable_diarization:
             raise ValueError("diarize=True requires enable_diarization=True at __init__")
 
         requested = language
-        if language is None and self._config.lid.enabled:
+        if language is None and self._lid is not None:
             # SileroLid internally trims to LID_AUDIO_SECONDS (spec §8); no external slice needed.
             lid_result = await self._lid.detect(audio_pcm, sample_rate)
             if lid_result.confidence >= self._config.lid.confidence_threshold:
@@ -186,6 +191,7 @@ class Transcriber:
         diarize: bool = False,
         tenant_id: str | None = None,
     ) -> AsyncIterator[TranscriptionResult]:
+        """Stream partial transcriptions; no per-chunk LID (deferred), one telemetry record per partial; same diarize-gate as transcribe (deferred-raise on first iteration since async generator)."""
         if diarize and not self._enable_diarization:
             raise ValueError("diarize=True requires enable_diarization=True at __init__")
         # For v0.1, route by static language hint; LID per-chunk is deferred
