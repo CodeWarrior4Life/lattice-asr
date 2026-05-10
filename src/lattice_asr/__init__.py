@@ -1,18 +1,27 @@
-"""lattice-asr — hardware-adaptive multilingual ASR library for the Lattice family.
+"""lattice-asr — hardware-adaptive multilingual ASR."""
 
-v0.1 scaffold. Spec at vault `02_Projects/Lattice/lattice-asr/Specifications/
-2026-04-27 lattice-asr v1 - Design Spec.md`.
+try:
+    from importlib.metadata import version
 
-Implementation lands in subsequent sessions. The public surface in v0.1.0
-will expose:
+    __version__ = version("lattice-asr")
+except Exception:
+    __version__ = "0.0.0+unknown"
 
-- `Transcriber` — main entry point, hardware-probed engine selection.
-- `TranscriptionEngine` — Protocol for engine plug-ins (Whisper, Parakeet, Remote).
-- `TranscriptionResult` / `TranscriptSegment` — wire-format dataclasses.
-- `transcribe()` / `transcribe_streaming()` — high-level helpers.
-"""
+from lattice_asr.types import (
+    Segment,
+    SpeakerSegment,
+    EngineCapabilities,
+    TranscriptionResult,
+    AsrCallRecord,
+    TelemetrySink,
+)
 
-from __future__ import annotations
-
-__version__ = "0.1.0.dev0"
-__all__ = ["__version__"]
+__all__ = [
+    "__version__",
+    "Segment",
+    "SpeakerSegment",
+    "EngineCapabilities",
+    "TranscriptionResult",
+    "AsrCallRecord",
+    "TelemetrySink",
+]
