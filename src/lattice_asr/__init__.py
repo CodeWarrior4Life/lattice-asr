@@ -30,3 +30,31 @@ __all__ = [
     "ListTelemetrySink",
     "Transcriber",
 ]
+
+import asyncio
+from typing import Optional
+
+_singleton: Optional["Transcriber"] = None
+_singleton_lock = asyncio.Lock()
+
+
+def _reset_singleton() -> None:
+    """Test-only — clear the lazy singleton."""
+    global _singleton
+    _singleton = None
+
+
+async def transcribe(
+    audio_pcm: bytes,
+    sample_rate: int = 16000,
+    language: str | None = None,
+) -> "TranscriptionResult":
+    """Module-level convenience using a process-singleton Transcriber. Spec §4.1."""
+    global _singleton
+    async with _singleton_lock:
+        if _singleton is None:
+            _singleton = Transcriber()
+    return await _singleton.transcribe(audio_pcm, sample_rate, language=language)
+
+
+__all__ += ["transcribe"]
