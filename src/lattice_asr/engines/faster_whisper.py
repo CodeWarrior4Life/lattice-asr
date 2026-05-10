@@ -16,11 +16,13 @@ from lattice_asr.types import EngineCapabilities, Segment, TranscriptionResult
 # Spec §6.3: capabilities.languages = frozenset(WHISPER_SUPPORTED_LANGUAGES) (99 languages).
 # Dynamic import so the frozenset reflects faster-whisper's actual tokenizer list rather than
 # a hand-curated subset (the static fallback below is a conservative approximation only).
+# NOTE: importing faster_whisper.tokenizer eagerly loads ctranslate2 (~238ms cold).
+# WhisperModel itself remains lazy (loaded inside _ensure_model on first call).
 try:
     from faster_whisper.tokenizer import _LANGUAGE_CODES as _FW_LANG_CODES  # type: ignore[import-untyped]
 
     _WHISPER_LANGS: frozenset[str] = frozenset(_FW_LANG_CODES)
-except Exception:
+except (ImportError, AttributeError):
     # Fallback: faster-whisper not installed; capabilities still inspectable.
     # This list is a curated subset — verify against _LANGUAGE_CODES when the package is present.
     _WHISPER_LANGS = frozenset(
@@ -48,7 +50,6 @@ except Exception:
             "fi",
             "fo",
             "fr",
-            "ga",
             "gl",
             "gu",
             "he",
@@ -210,7 +211,7 @@ class FasterWhisperEngine(TranscriptionEngine):
         sample_rate: int,
         language: str | None,
     ) -> AsyncIterator[TranscriptionResult]:
-        """Buffer chunks and yield one TranscriptionResult per ~1s window."""
+        """Transcribe a streaming audio source. Requires sample_rate=16000. Yields one result per buffered window."""
         if sample_rate != 16000:
             raise ValueError(f"FasterWhisperEngine requires sample_rate=16000, got {sample_rate}")
         buf = bytearray()
