@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from dataclasses import replace
 from datetime import UTC, datetime
 
 from lattice_asr.config import LatticeAsrConfig
@@ -96,6 +95,12 @@ class Transcriber:
         force_engine: str | None = None,
         enable_diarization: bool = False,
     ):
+        if enable_diarization:
+            raise NotImplementedError(
+                "Diarization is not available in v0.1; it lands in W5. "
+                "Construct Transcriber with enable_diarization=False (default) and re-enable "
+                "after upgrading to a lattice-asr release that exposes a diarizer."
+            )
         self._default_language = default_language
         self._config = config or LatticeAsrConfig()
         self._telemetry = telemetry_sink or NullTelemetrySink()
@@ -149,9 +154,10 @@ class Transcriber:
 
         speaker_count: int | None = None
         if diarize and self._diarizer is not None:
-            speaker_segments = await self._diarizer.diarize(audio_pcm, sample_rate)
+            from dataclasses import replace
             from lattice_asr.diarize import merge_segments_with_text
 
+            speaker_segments = await self._diarizer.diarize(audio_pcm, sample_rate)
             speaker_segments = merge_segments_with_text(speaker_segments, result.segments)
             result = replace(result, speaker_segments=tuple(speaker_segments))
             speaker_count = len({s.label for s in speaker_segments})
@@ -159,7 +165,7 @@ class Transcriber:
         self._telemetry.record(
             AsrCallRecord(
                 engine_name=result.engine_name,
-                language_detected=result.language if requested is None else requested,
+                language_detected=result.language,
                 language_requested=requested,
                 audio_duration_ms=result.audio_duration_ms,
                 transcription_duration_ms=result.duration_ms,

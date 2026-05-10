@@ -142,3 +142,100 @@ async def test_diarize_requires_enable_diarization(cpu_only_hw):
         t = Transcriber(enable_diarization=False)
         with pytest.raises(ValueError, match="enable_diarization"):
             await t.transcribe(b"\x00", language="en", diarize=True)
+
+
+@pytest.mark.r_tier
+def test_enable_diarization_raises_in_v01(cpu_only_hw):
+    with patch("lattice_asr.transcriber.detect_hardware", return_value=cpu_only_hw):
+        with pytest.raises(NotImplementedError, match="W5"):
+            Transcriber(enable_diarization=True)
+
+
+@pytest.mark.r_tier
+@pytest.mark.asyncio
+async def test_language_detected_reflects_engine_truth_not_request(cpu_only_hw):
+    """When caller requests 'en' but engine detects something else, telemetry
+    must record the engine's detection — not echo the caller's request."""
+    sink = ListTelemetrySink()
+    with patch("lattice_asr.transcriber.detect_hardware", return_value=cpu_only_hw):
+        t = Transcriber(telemetry_sink=sink)
+        fake_result = TranscriptionResult(
+            text="hola",
+            language="es",
+            confidence=0.9,
+            engine_name="faster-whisper",
+            segments=(),
+            speaker_segments=(),
+            audio_duration_ms=1000,
+            duration_ms=50,
+        )
+        with patch.object(t._engines["en"], "transcribe", new=AsyncMock(return_value=fake_result)):
+            await t.transcribe(b"\x00\x00", language="en")
+    # Caller requested 'en' but engine returned 'es' — record must show engine truth.
+    assert sink.records[0].language_requested == "en"
+    assert sink.records[0].language_detected == "es"
+
+
+@pytest.mark.r_tier
+@pytest.mark.asyncio
+async def test_streaming_diarize_requires_enable_diarization(cpu_only_hw):
+    with patch("lattice_asr.transcriber.detect_hardware", return_value=cpu_only_hw):
+        t = Transcriber()  # enable_diarization defaults to False
+
+        async def _empty_chunks():
+            if False:
+                yield b""
+
+        with pytest.raises(ValueError, match="enable_diarization"):
+            async for _ in t.transcribe_streaming(_empty_chunks(), language="en", diarize=True):
+                pass
+
+
+@pytest.mark.r_tier
+@pytest.mark.asyncio
+async def test_transcribe_streaming_yields_partials_and_records_each(cpu_only_hw):
+    """Streaming yields each engine partial and records one AsrCallRecord per partial."""
+    sink = ListTelemetrySink()
+    with patch("lattice_asr.transcriber.detect_hardware", return_value=cpu_only_hw):
+        t = Transcriber(telemetry_sink=sink)
+        partial_1 = TranscriptionResult(
+            text="hi",
+            language="en",
+            confidence=0.9,
+            engine_name="faster-whisper",
+            segments=(),
+            speaker_segments=(),
+            audio_duration_ms=500,
+            duration_ms=20,
+        )
+        partial_2 = TranscriptionResult(
+            text="hi there",
+            language="en",
+            confidence=0.92,
+            engine_name="faster-whisper",
+            segments=(),
+            speaker_segments=(),
+            audio_duration_ms=1000,
+            duration_ms=40,
+        )
+
+        async def _fake_engine_stream(*args, **kwargs):
+            yield partial_1
+            yield partial_2
+
+        async def _chunks():
+            yield b"\x00" * 1000
+
+        with patch.object(t._engines["en"], "transcribe_streaming", new=_fake_engine_stream):
+            received = [
+                r async for r in t.transcribe_streaming(_chunks(), language="en", tenant_id="alice")
+            ]
+
+    assert len(received) == 2
+    assert received[0].text == "hi"
+    assert received[1].text == "hi there"
+    assert len(sink.records) == 2
+    assert sink.records[0].tenant_id == "alice"
+    assert sink.records[1].tenant_id == "alice"
+    assert sink.records[0].language_requested == "en"
+    assert sink.records[0].language_detected == "en"  # engine truth
