@@ -7,15 +7,16 @@ try:
 except PackageNotFoundError:
     __version__ = "0.0.0+unknown"
 
+from lattice_asr.telemetry import ListTelemetrySink, NullTelemetrySink
+from lattice_asr.transcriber import Transcriber
 from lattice_asr.types import (
+    AsrCallRecord,
+    EngineCapabilities,
     Segment,
     SpeakerSegment,
-    EngineCapabilities,
-    TranscriptionResult,
-    AsrCallRecord,
     TelemetrySink,
+    TranscriptionResult,
 )
-from lattice_asr.telemetry import NullTelemetrySink, ListTelemetrySink
 
 __all__ = [
     "__version__",
@@ -27,4 +28,5 @@ __all__ = [
     "TelemetrySink",
     "NullTelemetrySink",
     "ListTelemetrySink",
+    "Transcriber",
 ]

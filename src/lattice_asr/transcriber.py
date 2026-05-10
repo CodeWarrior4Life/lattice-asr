@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import AsyncIterator
+from dataclasses import replace
+from datetime import UTC, datetime
+
+from lattice_asr.config import LatticeAsrConfig
 from lattice_asr.engines.base import TranscriptionEngine
 from lattice_asr.engines.faster_whisper import FasterWhisperEngine
-from lattice_asr.hardware import HardwareProfile
+from lattice_asr.hardware import HardwareProfile, detect_hardware
+from lattice_asr.lid import SileroLid
+from lattice_asr.telemetry import NullTelemetrySink
+from lattice_asr.types import (
+    AsrCallRecord,
+    TelemetrySink,
+    TranscriptionResult,
+)
 
 
 def _build_engine_registry(
@@ -69,3 +82,122 @@ def _build_engine_registry(
 
     cpu_engine = FasterWhisperEngine(model="distil-large-v3", device="cpu", compute_type="int8")
     return {"en": cpu_engine, "multi": cpu_engine}
+
+
+class Transcriber:
+    """Hardware-adaptive ASR with optional diarization. Spec §4."""
+
+    def __init__(
+        self,
+        *,
+        default_language: str = "en",
+        config: LatticeAsrConfig | None = None,
+        telemetry_sink: TelemetrySink | None = None,
+        force_engine: str | None = None,
+        enable_diarization: bool = False,
+    ):
+        self._default_language = default_language
+        self._config = config or LatticeAsrConfig()
+        self._telemetry = telemetry_sink or NullTelemetrySink()
+        self._enable_diarization = enable_diarization
+        self._hardware = detect_hardware()
+        self._engines = _build_engine_registry(
+            self._hardware, force_engine or self._config.hardware_force
+        )
+        self._lid = SileroLid()
+        self._diarizer = None  # loaded lazily in W5
+
+    @property
+    def hardware(self) -> HardwareProfile:
+        return self._hardware
+
+    @property
+    def loaded_engines(self) -> dict[str, TranscriptionEngine]:
+        return dict(self._engines)
+
+    async def warmup(self) -> None:
+        await asyncio.gather(*(e.warmup() for e in set(self._engines.values())))
+        if self._config.lid.enabled:
+            await self._lid.warmup()
+
+    async def transcribe(
+        self,
+        audio_pcm: bytes,
+        sample_rate: int = 16000,
+        *,
+        language: str | None = None,
+        diarize: bool = False,
+        tenant_id: str | None = None,
+    ) -> TranscriptionResult:
+        if diarize and not self._enable_diarization:
+            raise ValueError("diarize=True requires enable_diarization=True at __init__")
+
+        requested = language
+        if language is None and self._config.lid.enabled:
+            # SileroLid internally trims to LID_AUDIO_SECONDS (spec §8); no external slice needed.
+            lid_result = await self._lid.detect(audio_pcm, sample_rate)
+            if lid_result.confidence >= self._config.lid.confidence_threshold:
+                language = lid_result.language
+            else:
+                language = self._default_language
+        elif language is None:
+            language = self._default_language
+
+        route = "en" if language == "en" else "multi"
+        engine = self._engines[route]
+        result = await engine.transcribe(audio_pcm, sample_rate, language)
+
+        speaker_count: int | None = None
+        if diarize and self._diarizer is not None:
+            speaker_segments = await self._diarizer.diarize(audio_pcm, sample_rate)
+            from lattice_asr.diarize import merge_segments_with_text
+
+            speaker_segments = merge_segments_with_text(speaker_segments, result.segments)
+            result = replace(result, speaker_segments=tuple(speaker_segments))
+            speaker_count = len({s.label for s in speaker_segments})
+
+        self._telemetry.record(
+            AsrCallRecord(
+                engine_name=result.engine_name,
+                language_detected=result.language if requested is None else requested,
+                language_requested=requested,
+                audio_duration_ms=result.audio_duration_ms,
+                transcription_duration_ms=result.duration_ms,
+                diarized=diarize,
+                speaker_count=speaker_count,
+                tenant_id=tenant_id,
+                timestamp_utc=datetime.now(UTC),
+            )
+        )
+        return result
+
+    async def transcribe_streaming(
+        self,
+        audio_chunks: AsyncIterator[bytes],
+        sample_rate: int = 16000,
+        *,
+        language: str | None = None,
+        diarize: bool = False,
+        tenant_id: str | None = None,
+    ) -> AsyncIterator[TranscriptionResult]:
+        if diarize and not self._enable_diarization:
+            raise ValueError("diarize=True requires enable_diarization=True at __init__")
+        # For v0.1, route by static language hint; LID per-chunk is deferred
+        lang = language or self._default_language
+        route = "en" if lang == "en" else "multi"
+        engine = self._engines[route]
+        async for partial in engine.transcribe_streaming(audio_chunks, sample_rate, lang):
+            self._telemetry.record(
+                AsrCallRecord(
+                    engine_name=partial.engine_name,
+                    language_detected=partial.language,
+                    language_requested=language,
+                    audio_duration_ms=partial.audio_duration_ms,
+                    transcription_duration_ms=partial.duration_ms,
+                    diarized=False,  # v0.1: streaming + diarize not combined
+                    speaker_count=None,
+                    tenant_id=tenant_id,
+                    timestamp_utc=datetime.now(UTC),
+                )
+            )
+            yield partial
