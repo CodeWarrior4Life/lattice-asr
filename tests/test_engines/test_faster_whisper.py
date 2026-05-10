@@ -31,7 +31,7 @@ async def test_transcribe_auto_language(hello_en_2s_wav):
     eng = FasterWhisperEngine(model="distil-large-v3", device="cpu", compute_type="int8")
     audio = hello_en_2s_wav.read_bytes()
     result = await eng.transcribe(audio, sample_rate=16000, language=None)
-    assert result.language in ("en",)
+    assert result.language == "en"
 
 
 @pytest.mark.s_tier  # AUTHORIZED DEVIATION — warmup() loads ~600 MB model, violates r_tier FAST contract

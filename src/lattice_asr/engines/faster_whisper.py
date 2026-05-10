@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import math
 import time
 import wave
 from collections.abc import AsyncIterator
@@ -12,80 +13,99 @@ from lattice_asr.engines.base import TranscriptionEngine
 from lattice_asr.types import EngineCapabilities, Segment, TranscriptionResult
 
 
-_WHISPER_LANGS = frozenset(
-    {
-        "en",
-        "es",
-        "fr",
-        "de",
-        "it",
-        "pt",
-        "nl",
-        "pl",
-        "ru",
-        "ja",
-        "ko",
-        "zh",
-        "ar",
-        "hi",
-        "tr",
-        "sv",
-        "da",
-        "no",
-        "fi",
-        "el",
-        "he",
-        "th",
-        "vi",
-        "id",
-        "ms",
-        "uk",
-        "cs",
-        "hu",
-        "ro",
-        "bg",
-        "hr",
-        "sk",
-        "sl",
-        "et",
-        "lv",
-        "lt",
-        "fa",
-        "ur",
-        "bn",
-        "ta",
-        "te",
-        "ml",
-        "mr",
-        "gu",
-        "kn",
-        "pa",
-        "or",
-        "si",
-        "ne",
-        "my",
-        "km",
-        "lo",
-        "ka",
-        "am",
-        "sw",
-        "zu",
-        "xh",
-        "af",
-        "is",
-        "ga",
-        "cy",
-        "mt",
-        "eu",
-        "ca",
-        "gl",
-        "lb",
-        "fo",
-        "yi",
-        "yue",
-        "wuu",
-    }
-)
+# Spec §6.3: capabilities.languages = frozenset(WHISPER_SUPPORTED_LANGUAGES) (99 languages).
+# Dynamic import so the frozenset reflects faster-whisper's actual tokenizer list rather than
+# a hand-curated subset (the static fallback below is a conservative approximation only).
+try:
+    from faster_whisper.tokenizer import _LANGUAGE_CODES as _FW_LANG_CODES  # type: ignore[import-untyped]
+
+    _WHISPER_LANGS: frozenset[str] = frozenset(_FW_LANG_CODES)
+except Exception:
+    # Fallback: faster-whisper not installed; capabilities still inspectable.
+    # This list is a curated subset — verify against _LANGUAGE_CODES when the package is present.
+    _WHISPER_LANGS = frozenset(
+        {
+            "af",
+            "am",
+            "ar",
+            "az",
+            "be",
+            "bg",
+            "bn",
+            "br",
+            "bs",
+            "ca",
+            "cs",
+            "cy",
+            "da",
+            "de",
+            "el",
+            "en",
+            "es",
+            "et",
+            "eu",
+            "fa",
+            "fi",
+            "fo",
+            "fr",
+            "ga",
+            "gl",
+            "gu",
+            "he",
+            "hi",
+            "hr",
+            "hu",
+            "hy",
+            "id",
+            "is",
+            "it",
+            "ja",
+            "ka",
+            "km",
+            "kn",
+            "ko",
+            "lb",
+            "lo",
+            "lt",
+            "lv",
+            "mi",
+            "mk",
+            "ml",
+            "mr",
+            "ms",
+            "mt",
+            "my",
+            "ne",
+            "nl",
+            "no",
+            "pa",
+            "pl",
+            "pt",
+            "ro",
+            "ru",
+            "si",
+            "sk",
+            "sl",
+            "sq",
+            "sr",
+            "sv",
+            "sw",
+            "ta",
+            "te",
+            "tg",
+            "th",
+            "tk",
+            "tl",
+            "tr",
+            "uk",
+            "ur",
+            "uz",
+            "vi",
+            "yi",
+            "yue",
+            "zh",
+        }
+    )
 
 
 class FasterWhisperEngine(TranscriptionEngine):
@@ -103,7 +123,7 @@ class FasterWhisperEngine(TranscriptionEngine):
         self._device = device
         self._compute_type = compute_type
         self._beam_size = beam_size
-        self._model = None  # lazy-loaded
+        self._model: "WhisperModel | None" = None  # lazy-loaded
         self.capabilities = EngineCapabilities(
             name="faster-whisper",
             languages=_WHISPER_LANGS,
@@ -116,9 +136,9 @@ class FasterWhisperEngine(TranscriptionEngine):
     async def warmup(self) -> None:
         await asyncio.to_thread(self._ensure_model)
 
-    def _ensure_model(self):
+    def _ensure_model(self) -> "WhisperModel":
         if self._model is None:
-            from faster_whisper import WhisperModel  # type: ignore[import-not-found]
+            from faster_whisper import WhisperModel  # type: ignore[import-untyped]
 
             self._model = WhisperModel(
                 self._model_name,
@@ -146,6 +166,7 @@ class FasterWhisperEngine(TranscriptionEngine):
         sample_rate: int,
         language: str | None,
     ) -> TranscriptionResult:
+        """Transcribe raw PCM or WAV bytes. Requires sample_rate=16000."""
         if sample_rate != 16000:
             raise ValueError(f"FasterWhisperEngine requires sample_rate=16000, got {sample_rate}")
         t0 = time.monotonic()
@@ -167,7 +188,7 @@ class FasterWhisperEngine(TranscriptionEngine):
                 text=s.text.strip(),
                 start_ms=int(s.start * 1000),
                 end_ms=int(s.end * 1000),
-                confidence=float(s.avg_logprob),
+                confidence=float(math.exp(s.avg_logprob)),
             )
             for s in seg_list
         )
@@ -189,6 +210,9 @@ class FasterWhisperEngine(TranscriptionEngine):
         sample_rate: int,
         language: str | None,
     ) -> AsyncIterator[TranscriptionResult]:
+        """Buffer chunks and yield one TranscriptionResult per ~1s window."""
+        if sample_rate != 16000:
+            raise ValueError(f"FasterWhisperEngine requires sample_rate=16000, got {sample_rate}")
         buf = bytearray()
         async for chunk in audio_chunks:
             buf.extend(chunk)

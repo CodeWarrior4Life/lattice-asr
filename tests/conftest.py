@@ -1,15 +1,12 @@
-import hashlib
 from pathlib import Path
 from urllib.request import urlretrieve
 
 import pytest
 
 
+# SHA256 verification can be added here when CI fixture integrity matters.
 _FIXTURES = {
-    "hello-en-2s.wav": (
-        "https://huggingface.co/datasets/CodeWarrior4Life/lattice-asr-fixtures/resolve/main/hello-en-2s.wav",
-        "REPLACE_WITH_REAL_SHA256_AT_FIRST_RUN",
-    ),
+    "hello-en-2s.wav": "https://huggingface.co/datasets/CodeWarrior4Life/lattice-asr-fixtures/resolve/main/hello-en-2s.wav",
 }
 
 
@@ -20,12 +17,12 @@ def fixture_dir() -> Path:
     return p
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def hello_en_2s_wav(fixture_dir: Path) -> Path:
     name = "hello-en-2s.wav"
     target = fixture_dir / name
     if not target.exists():
-        url, _expected_sha = _FIXTURES[name]
+        url = _FIXTURES[name]
         urlretrieve(url, target)
     return target
 
