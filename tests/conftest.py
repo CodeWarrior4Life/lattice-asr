@@ -7,6 +7,7 @@ import pytest
 # SHA256 verification can be added here when CI fixture integrity matters.
 _FIXTURES = {
     "hello-en-2s.wav": "https://huggingface.co/datasets/CodeWarrior4Life/lattice-asr-fixtures/resolve/main/hello-en-2s.wav",
+    "hello-en-30s.wav": "https://huggingface.co/datasets/CodeWarrior4Life/lattice-asr-fixtures/resolve/main/hello-en-30s.wav",
 }
 
 
@@ -20,6 +21,16 @@ def fixture_dir() -> Path:
 @pytest.fixture(scope="session")
 def hello_en_2s_wav(fixture_dir: Path) -> Path:
     name = "hello-en-2s.wav"
+    target = fixture_dir / name
+    if not target.exists():
+        url = _FIXTURES[name]
+        urlretrieve(url, target)
+    return target
+
+
+@pytest.fixture(scope="session")
+def hello_en_30s_wav(fixture_dir: Path) -> Path:
+    name = "hello-en-30s.wav"
     target = fixture_dir / name
     if not target.exists():
         url = _FIXTURES[name]
