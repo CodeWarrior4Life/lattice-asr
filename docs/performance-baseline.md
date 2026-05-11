@@ -61,23 +61,31 @@ enforced by the test harness.
 
 ## Fixture status
 
-The 30-second benchmark clip lives at:
+The benchmark clips are committed in-repo at:
 
 ```
-https://huggingface.co/datasets/CodeWarrior4Life/lattice-asr-fixtures/resolve/main/hello-en-30s.wav
+tests/fixtures/audio/hello-en-2s.wav    # 1.70s, 54 KB
+tests/fixtures/audio/hello-en-30s.wav   # 30.00s, 960 KB
 ```
 
-As of 2026-05-11 this dataset returns HTTP 401 (private or not yet populated).
-Two paths exist while the dataset is being prepared:
+Both files are kept under version control (the broad `tests/fixtures/*.wav`
+ignore in `.gitignore` doesn't match the `audio/` subdir). The `hello_en_2s_wav`
+and `hello_en_30s_wav` fixtures in `tests/conftest.py` are lazy: if the file
+already exists locally they skip the network entirely; otherwise they fall
+back to the HF dataset URL.
 
-- **Local fallback (preferred until HF is public)**: drop the file at
-  `tests/fixtures/audio/hello-en-30s.wav` before running perf tests. The
-  `hello_en_30s_wav` fixture is lazy and only attempts a network download when
-  the file is missing; if it exists locally, no HF traffic happens.
-- **Public HF**: once the dataset is public the fixture downloads on first run
-  and caches under `tests/fixtures/audio/`.
+The clips are synthesized from Windows SAPI (`System.Speech.Synthesis`) using
+a deterministic English paragraph at 16 kHz mono 16-bit PCM. Determinism
+matters because the perf gates pin against a known audio duration — any
+re-generation must preserve the exact frame count (480 000 frames for the
+30 s clip, sample rate 16 000 Hz).
 
-The same arrangement applies to `hello-en-2s.wav` (the smoke fixture).
+**Original HF plan (not adopted):** the dataset
+`CodeWarrior4Life/lattice-asr-fixtures` was originally planned as the network
+source. Probed on 2026-05-11 with a valid READ-scope HF token and returned
+HTTP 404 (repo not found, never created). Committing the WAVs in-repo
+sidesteps the HF write-token rotation entirely; revisit if fixtures grow past
+the ~10 MB hand-wave threshold.
 
 ## Baseline log
 
