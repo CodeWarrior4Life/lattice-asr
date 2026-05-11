@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
@@ -95,13 +96,7 @@ class Transcriber:
         force_engine: str | None = None,
         enable_diarization: bool = False,
     ):
-        """Construct hardware-adaptive Transcriber; raises NotImplementedError if enable_diarization=True (v0.1, lands W5)."""
-        if enable_diarization:
-            raise NotImplementedError(
-                "Diarization is not available in v0.1; it lands in W5. "
-                "Construct Transcriber with enable_diarization=False (default) and re-enable "
-                "after upgrading to a lattice-asr release that exposes a diarizer."
-            )
+        """Construct hardware-adaptive Transcriber; loads diarizer adapter per config when enable_diarization=True (pyannote default, sortformer via config.diarization.adapter='sortformer')."""
         self._default_language = default_language
         self._config = config or LatticeAsrConfig()
         self._telemetry = telemetry_sink or NullTelemetrySink()
@@ -111,7 +106,23 @@ class Transcriber:
             self._hardware, force_engine or self._config.hardware_force
         )
         self._lid = SileroLid() if self._config.lid.enabled else None
-        self._diarizer = None  # loaded lazily in W5
+        self._diarizer = None
+        if enable_diarization:
+            if self._config.diarization.adapter == "pyannote":
+                from lattice_asr.diarize.pyannote import PyAnnoteAdapter
+
+                self._diarizer = PyAnnoteAdapter(
+                    model=self._config.diarization.pyannote.model,
+                    auth_token=os.environ.get(self._config.diarization.pyannote.auth_token_env),
+                )
+            elif self._config.diarization.adapter == "sortformer":
+                from lattice_asr.diarize.sortformer import NvidiaSortformerAdapter
+
+                self._diarizer = NvidiaSortformerAdapter(
+                    model=self._config.diarization.sortformer.model,
+                )
+            else:
+                raise ValueError(f"unknown diarization.adapter: {self._config.diarization.adapter}")
 
     @property
     def hardware(self) -> HardwareProfile:

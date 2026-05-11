@@ -145,14 +145,6 @@ async def test_diarize_requires_enable_diarization(cpu_only_hw):
 
 
 @pytest.mark.r_tier
-def test_enable_diarization_raises_in_v01(cpu_only_hw):
-    """v0.1 contract: enable_diarization=True must raise NotImplementedError until W5."""
-    with patch("lattice_asr.transcriber.detect_hardware", return_value=cpu_only_hw):
-        with pytest.raises(NotImplementedError, match="W5"):
-            Transcriber(enable_diarization=True)
-
-
-@pytest.mark.r_tier
 @pytest.mark.asyncio
 async def test_language_detected_reflects_engine_truth_not_request(cpu_only_hw):
     """When caller requests 'en' but engine detects something else, telemetry
@@ -330,3 +322,36 @@ async def test_transcribe_engine_raises_propagates_and_skips_telemetry(cpu_only_
             with pytest.raises(RuntimeError, match="boom"):
                 await t.transcribe(b"\x00\x00", language="en")
     assert len(sink.records) == 0
+
+
+@pytest.mark.r_tier
+def test_enable_diarization_pyannote_default_loads_adapter(cpu_only_hw):
+    """With default config (adapter='pyannote'), enable_diarization=True loads PyAnnoteAdapter."""
+    from lattice_asr.diarize.pyannote import PyAnnoteAdapter
+
+    with patch("lattice_asr.transcriber.detect_hardware", return_value=cpu_only_hw):
+        t = Transcriber(enable_diarization=True)
+    assert isinstance(t._diarizer, PyAnnoteAdapter)
+
+
+@pytest.mark.r_tier
+def test_enable_diarization_sortformer_override_loads_adapter(cpu_only_hw):
+    """With diarization.adapter='sortformer' config override, enable_diarization=True loads NvidiaSortformerAdapter."""
+    from lattice_asr.config import DiarizationConfig, LatticeAsrConfig
+    from lattice_asr.diarize.sortformer import NvidiaSortformerAdapter
+
+    cfg = LatticeAsrConfig(diarization=DiarizationConfig(adapter="sortformer"))
+    with patch("lattice_asr.transcriber.detect_hardware", return_value=cpu_only_hw):
+        t = Transcriber(config=cfg, enable_diarization=True)
+    assert isinstance(t._diarizer, NvidiaSortformerAdapter)
+
+
+@pytest.mark.r_tier
+def test_enable_diarization_unknown_adapter_raises_valueerror(cpu_only_hw):
+    """Unknown diarization.adapter must raise ValueError naming the bad adapter."""
+    from lattice_asr.config import DiarizationConfig, LatticeAsrConfig
+
+    cfg = LatticeAsrConfig(diarization=DiarizationConfig(adapter="bogus"))
+    with patch("lattice_asr.transcriber.detect_hardware", return_value=cpu_only_hw):
+        with pytest.raises(ValueError, match="bogus"):
+            Transcriber(config=cfg, enable_diarization=True)
