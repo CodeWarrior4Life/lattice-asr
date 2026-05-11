@@ -41,13 +41,13 @@ def test_force_engine_loads_only_named_engine():
 
 
 @pytest.mark.r_tier
-def test_apple_silicon_uses_parakeet_cpp_and_whisper_cpp():
-    # ParakeetCpp / WhisperCpp lazy-imported in registry; should not raise on construction
+def test_apple_silicon_uses_parakeet_mlx_and_whisper_cpp():
+    # ParakeetMlx / WhisperCpp lazy-imported in registry; should not raise on construction
     reg = _build_engine_registry(
         _hw(apple_silicon=True, os_="darwin", arch="arm64"),
         force=None,
     )
-    assert reg["en"].capabilities.name == "parakeet.cpp"
+    assert reg["en"].capabilities.name == "parakeet-mlx"
     assert reg["multi"].capabilities.name == "whisper.cpp"
 
 

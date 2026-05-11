@@ -44,10 +44,10 @@ def _build_engine_registry(
                 raise ValueError("force_engine='remote:' requires a URL, got empty")
             engine = RemoteEngine(url=url)
             return {"en": engine, "multi": engine}
-        if force == "parakeet.cpp":
-            from lattice_asr.engines.parakeet_cpp import ParakeetCppEngine
+        if force == "parakeet-mlx":
+            from lattice_asr.engines.parakeet_mlx import ParakeetMlxEngine
 
-            engine = ParakeetCppEngine()
+            engine = ParakeetMlxEngine()
             return {"en": engine, "multi": engine}
         if force == "parakeet-tdt":
             from lattice_asr.engines.parakeet_tdt import ParakeetTdtEngine
@@ -62,11 +62,11 @@ def _build_engine_registry(
         raise ValueError(f"unknown force_engine: {force}")
 
     if hw.apple_silicon:
-        from lattice_asr.engines.parakeet_cpp import ParakeetCppEngine
+        from lattice_asr.engines.parakeet_mlx import ParakeetMlxEngine
         from lattice_asr.engines.whisper_cpp import WhisperCppEngine
 
         return {
-            "en": ParakeetCppEngine(),
+            "en": ParakeetMlxEngine(),
             "multi": WhisperCppEngine(),
         }
 
@@ -171,6 +171,7 @@ class Transcriber:
         speaker_count: int | None = None
         if diarize and self._diarizer is not None:
             from dataclasses import replace
+
             from lattice_asr.diarize import merge_segments_with_text
 
             speaker_segments = await self._diarizer.diarize(audio_pcm, sample_rate)

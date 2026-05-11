@@ -1,6 +1,6 @@
 """Performance gates per spec §12.3.
 
-C1 — Apple Silicon parakeet.cpp >10× RTF.
+C1 — Apple Silicon parakeet-mlx >10× RTF.
 C2 — NVIDIA parakeet-tdt >50× RTF.
 C3 — CPU faster-whisper distil-large-v3 int8 >2× RTF.
 
@@ -9,6 +9,7 @@ Hard-fail gates: C1, C2, C3. Run via `LATTICE_ASR_PERF_RUN=1 pytest tests/perf/ 
 
 import os
 import time
+
 import pytest
 
 PERF_RUN = os.getenv("LATTICE_ASR_PERF_RUN") == "1"
@@ -19,10 +20,10 @@ perfonly = pytest.mark.skipif(not PERF_RUN, reason="set LATTICE_ASR_PERF_RUN=1")
 @pytest.mark.perf
 @pytest.mark.apple_silicon
 @pytest.mark.asyncio
-async def test_c1_apple_silicon_parakeet_cpp_10x_rtf(hello_en_30s_wav):
-    from lattice_asr.engines.parakeet_cpp import ParakeetCppEngine
+async def test_c1_apple_silicon_parakeet_mlx_10x_rtf(hello_en_30s_wav):
+    from lattice_asr.engines.parakeet_mlx import ParakeetMlxEngine
 
-    eng = ParakeetCppEngine()
+    eng = ParakeetMlxEngine()
     await eng.warmup()
     audio = hello_en_30s_wav.read_bytes()
     t0 = time.monotonic()
