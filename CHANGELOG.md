@@ -32,23 +32,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `lattice-asr-server` console script entry point.
 - In-process server↔client round-trip integration test (`tests/test_remote_integration.py`) using `httpx.ASGITransport`.
 
-#### W5 — Diarization (partial, spec §7)
+#### W5 — Diarization (spec §7)
 - `Diarizer` ABC + `merge_segments_with_text` helper (`src/lattice_asr/diarize/base.py`). Merge is first-match-wins on shared boundaries (the earlier speaker in input order claims a transcription whose midpoint falls on a shared boundary; prevents double-counting when intervals overlap).
 - `PyAnnoteAdapter` (`src/lattice_asr/diarize/pyannote.py`) — lazy pyannote.audio import; raises clear `ValueError` if `HF_TOKEN` env / `auth_token` kwarg absent.
 - `NvidiaSortformerAdapter` (`src/lattice_asr/diarize/sortformer.py`) — lazy NeMo import; runs against `nvidia/sortformer-diarization-l24-30s`.
-- W5 r_tier unit tests across pyannote scaffold, sortformer scaffold, and 6 segment-merge boundary cases.
+- `Transcriber` diarizer wiring (`src/lattice_asr/transcriber.py`) — `enable_diarization=True` now loads `PyAnnoteAdapter` (default) or `NvidiaSortformerAdapter` (when `config.diarization.adapter='sortformer'`) per `config.diarization.{adapter,pyannote,sortformer}`; unknown adapter raises `ValueError`. Real model loads stay lazy (HF_TOKEN / NeMo deps not required for construction).
+- W5 r_tier unit tests across pyannote scaffold, sortformer scaffold, 6 segment-merge boundary cases, and 3 Transcriber-wire-in cases (pyannote default, sortformer override, unknown-adapter ValueError).
 
 #### Tooling + config
 - Registered remaining plan-spec pytest markers (`apple_silicon`, `nvidia_cuda`, `perf`) in `pyproject.toml`.
 
 ### Test surface
-- 79 r_tier tests passing across hardware probe, types, telemetry, config, engines (faster_whisper, remote), LID, transcriber, module convenience, server, and diarize (pyannote / sortformer / segment-merge).
+- 81 r_tier tests passing across hardware probe, types, telemetry, config, engines (faster_whisper, remote), LID, transcriber, module convenience, server, and diarize (pyannote / sortformer / segment-merge / Transcriber wire-in).
 - 6 tests skipped under `apple_silicon` / `nvidia_cuda` / `s_tier` markers — gated on hardware/scope not present on the current runner.
 - Coverage: 79.15%+ (v0.1 65% gate cleared).
 
 ### Pending (v0.1)
 - W3: `ParakeetCppEngine` (Apple Silicon), `ParakeetTdtEngine` (NVIDIA), `WhisperCppEngine` (Apple Silicon Metal) — needs Mac and NVIDIA runners respectively.
-- W5.3 step 2: wire `PyAnnoteAdapter` / `NvidiaSortformerAdapter` into `Transcriber.__init__` per spec §7 (deferred — depends on `_config.diarization.{adapter,pyannote,sortformer}` schema verification).
 - W6: performance baseline gates (C1/C2/C3 from spec §12.3), CI workflow, README rewrite, `v0.1.0` tag + PyPI publish.
 
 [Unreleased]: https://github.com/CodeWarrior4Life/lattice-asr/commits/main
