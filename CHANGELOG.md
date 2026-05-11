@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-05-11
+
 ### Added
 
 #### W1 — Foundation (spec §3, §4, §9, §10)
@@ -63,4 +65,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - W6.4 / v0.1.0: tag + PyPI publish (owner-gated).
 - Plan + spec phantom-dep correction sweep: replace inline `parakeet-cpp-py` / `parakeet.cpp` body references in `Plans/2026-05-08…Implementation Plan.md` + `Specifications/2026-04-27 lattice-asr v1 - Design Spec.md` (correction notices already at top per S41; deeper body rewrite deferred to pre-v0.1.0 polish if churn-worthy).
 
-[Unreleased]: https://github.com/CodeWarrior4Life/lattice-asr/commits/main
+[Unreleased]: https://github.com/CodeWarrior4Life/lattice-asr/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/CodeWarrior4Life/lattice-asr/releases/tag/v0.1.0
