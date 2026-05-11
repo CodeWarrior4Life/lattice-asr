@@ -9,7 +9,7 @@ lattice-meeting, MindPractice) depend on.
 
 | Gate | Host class | Engine | Audio | Target RTF | Hard-fail | Canonical host |
 | ---- | ---------- | ------ | ----- | ---------- | --------- | -------------- |
-| C1   | Apple Silicon (M-series) | `parakeet.cpp` | hello-en-30s.wav | > 10× | yes | Trinity (Apple M5 Max) |
+| C1   | Apple Silicon (M-series) | `parakeet.cpp` | hello-en-30s.wav | > 10× | yes | Switch (Apple M4 Pro, Mac mini production host) |
 | C2   | NVIDIA CUDA GPU (Linux) | `parakeet-tdt` (NeMo) | hello-en-30s.wav | > 50× | yes | Cypher (RTX 2070, Ubuntu 24.04) |
 | C3   | CPU (non-GPU fallback path, arm64 or x86_64) | `faster-whisper` distil-large-v3 int8 | hello-en-30s.wav | > 2× | yes | Switch (Apple M4 Pro, Mac mini production host) |
 
@@ -34,7 +34,13 @@ LATTICE_ASR_PERF_RUN=1 pytest tests/perf/ -m perf -k c1 -v
 ```
 
 Requires `parakeet-cpp-py` (the `parakeet` extra). Skip elsewhere via the
-`apple_silicon` marker. Run on Trinity (Apple M5 Max).
+`apple_silicon` marker. Run on **Switch** (Apple M4 Pro, the canonical C1 host).
+**Currently BLOCKED** on two upstream gaps: (1) `ParakeetCppEngine` is a W3.1
+stub that raises `NotImplementedError`, and (2) `parakeet-cpp-py>=0.1` is not
+yet published to PyPI (pip resolution fails). C1 baseline runs the moment W3.1
+ships AND the upstream Python wrapper lands. Trinity (M5 Max laptop) is NOT
+canonical — it is the user's laptop, not a Lattice production host; the same
+production-host rule that excludes Morpheus applies to Trinity.
 
 ### C2 — NVIDIA parakeet-tdt
 
@@ -106,7 +112,7 @@ recent passing measurement is the baseline of record for that host.
 | 2026-05-11 | **Switch** | Apple M4 Pro 12-core ARM64 (Mac mini production host, Nexus primary since S245) | C3 | **3.35× warm / 3.28× cold** | **PASS** | **Canonical C3 host as of 2026-05-11 S41.** CTranslate2 NEON int8 path comfortably clears the 2.0× target by 64-67%. Print surfaced via the W6.1 feat: `[C3] RTF=3.35× elapsed=8.95s audio=30.00s`. Re-designation from Cypher driven by Cypher's 2019 Zen 2 silicon being too slow to clear 2× — see Cypher row below. C3 hardware class broadened from `x86_64 CPU` to `CPU (non-GPU fallback)` to accommodate the cross-arch reality. |
 | 2026-05-11 | Cypher | x86_64 Ubuntu 24.04, AMD Ryzen 9 3900X 12C/24T (Zen 2, 2019), 64 GB RAM | C3 | 1.57× warm / 1.59× cold | **FAIL** | Historic measurement — superseded by Switch as canonical C3 host (above). distil-large-v3 int8 underperforms the 2.0× target on this 2019 Zen 2 silicon. Warm RTF < cold RTF (1.57 vs 1.59) confirms model load is not the bottleneck — steady-state CPU compute is. Morpheus's Intel Core Ultra 9 285K (2024, also no AVX-512) clears 2.44× on the same code path, so the bottleneck is raw CPU clock+IPC, not AVX-512 specifically. Cypher's 2019 silicon is simply too old to clear 2× on this workload. |
 | 2026-05-11 | Cypher | NVIDIA RTX 2070 (8 GB, CUDA 7.5, Turing), driver 595.58.03 | C2 | — | **BLOCKED** | `ParakeetTdtEngine.transcribe` raises `NotImplementedError("ParakeetTdtEngine implemented in W3.2")` — the engine is a stub. Install validated end-to-end (nemo-toolkit 2.7.3, torch 2.11.0 + nvidia-cuda-* 13.x, faster-whisper 1.2.1); C2 baseline runs the moment W3.2 lands. RTX 2070 has no FP8 tensor cores, so the 50× target may still be tight on Turing once unblocked. |
-|      | Trinity | Apple M5 Max (unified 128 GB) | C1 | TBD | TBD | Canonical C1 host. |
+| 2026-05-11 | Switch | Apple M4 Pro 12-core ARM64 (Mac mini production host) | C1 | — | **BLOCKED** | `ParakeetCppEngine.transcribe` raises `NotImplementedError("ParakeetCppEngine implemented in W3.1")` AND `parakeet-cpp-py>=0.1` is not published to PyPI (`ERROR: No matching distribution found for parakeet-cpp-py>=0.1`). C1 baseline runs the moment W3.1 ships AND the upstream wrapper lands. Trinity (M5 Max) is **NOT** canonical — it's the user's laptop, not a Lattice production host. |
 
 **C3 resolution (2026-05-11 S41):** Canonical C3 host re-designated from Cypher
 to **Switch** (Apple M4 Pro Mac mini, the Lattice Nexus primary since S245).
@@ -126,6 +132,16 @@ AMD Zen 4+), but it is not a requirement for clearing 2×. The Cypher row is
 preserved in the baseline log as historic data; Switch is now the host of
 record. **Target was NOT massaged — Switch's measurement is comfortably above
 the as-written 2.0× threshold.**
+
+**C1 finding (2026-05-11):** Engine implementation gap PLUS missing upstream
+package. `ParakeetCppEngine` is a W3.1 stub that raises `NotImplementedError`,
+AND `parakeet-cpp-py>=0.1` (the upstream Python wrapper) is not yet published
+to PyPI — `pip install -e ".[parakeet]"` on Switch fails with `ERROR: No
+matching distribution found for parakeet-cpp-py>=0.1`. C1 baseline runs the
+moment both ship. Canonical host = Switch (Apple M4 Pro Mac mini), the only
+Apple Silicon production host on the lattice. Trinity (Apple M5 Max) is the
+user's laptop, not a Lattice production host, and is NOT canonical (same
+production-host rule that excludes Morpheus).
 
 **C2 finding (2026-05-11):** Engine implementation gap, not a hardware issue.
 `ParakeetTdtEngine` is a W3.2 stub that raises `NotImplementedError`. NeMo
