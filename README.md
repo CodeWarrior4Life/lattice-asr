@@ -2,7 +2,7 @@
 
 Hardware-adaptive multilingual ASR library for the Lattice family.
 
-> **Status:** v0.1 implementation in progress. W1 (foundation), W2 (Whisper + LID + Transcriber), W4 (RemoteEngine + lattice-asr-server), and W5 (diarization) are landed; W3 (Apple Silicon engines) is pending a Mac runner and W6 (ship) is pending. 81 r_tier tests passing. See [CHANGELOG.md](CHANGELOG.md) for the unreleased detail.
+> **Status:** v0.1 implementation in progress. W1 (foundation), W2 (Whisper + LID + Transcriber), W4 (RemoteEngine + lattice-asr-server), and W5 (diarization) are landed; W6.1 (perf-gate skeleton) is landed; W3 (Apple Silicon engines) is pending a Mac runner and the rest of W6 (CI workflow, README rewrite, v0.1.0 tag + PyPI) is pending. 81 r_tier tests passing. See [CHANGELOG.md](CHANGELOG.md) for the unreleased detail.
 
 ## What it is
 
@@ -32,7 +32,7 @@ Speaker identification (deferred to a future `lattice-voiceprint`), on-device fi
 | W3 Apple Silicon engines | Pending (needs Mac runner) |
 | W4 RemoteEngine + lattice-asr-server | Landed |
 | W5 Diarization | Landed (pyannote + sortformer adapters + Transcriber wire-in; real-model exercise gated on `HF_TOKEN` / NeMo) |
-| W6 Ship (perf, CI, release) | Pending |
+| W6 Ship (perf, CI, release) | Partial — W6.1 perf-gate skeleton landed (C1/C2/C3 hard-fail gates, opt-in via `LATTICE_ASR_PERF_RUN=1`); W6.2 CI workflow + W6.3 README rewrite + v0.1.0 tag pending |
 | First consumer | `lattice-dictate` (planned) |
 | Second consumer | `lattice-meetbot` (refactored transcription path) |
 
