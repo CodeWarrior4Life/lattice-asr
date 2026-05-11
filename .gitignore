@@ -25,6 +25,9 @@ env/
 venv/
 ENV/
 
+# Project credentials (PyPI token, etc.) — source of truth in vault
+credentials.md
+
 .pytest_cache/
 .coverage
 .coverage.*
