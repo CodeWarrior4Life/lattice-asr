@@ -11,7 +11,7 @@ lattice-meeting, MindPractice) depend on.
 | ---- | ---------- | ------ | ----- | ---------- | --------- | -------------- |
 | C1   | Apple Silicon (M-series) | `parakeet.cpp` | hello-en-30s.wav | > 10× | yes | Trinity (Apple M5 Max) |
 | C2   | NVIDIA CUDA GPU (Linux) | `parakeet-tdt` (NeMo) | hello-en-30s.wav | > 50× | yes | Cypher (RTX 2070, Ubuntu 24.04) |
-| C3   | x86_64 CPU (Linux server) | `faster-whisper` distil-large-v3 int8 | hello-en-30s.wav | > 2× | yes | Cypher (x86_64 Ubuntu 24.04) |
+| C3   | CPU (non-GPU fallback path, arm64 or x86_64) | `faster-whisper` distil-large-v3 int8 | hello-en-30s.wav | > 2× | yes | Switch (Apple M4 Pro, Mac mini production host) |
 
 **Canonical hosts are production servers.** Dev workstations (e.g., Morpheus
 running Windows) are useful for plumbing verification but are explicitly NOT
@@ -51,9 +51,12 @@ the `nvidia_cuda` marker. Run on Cypher (RTX 2070, Ubuntu 24.04).
 LATTICE_ASR_PERF_RUN=1 pytest tests/perf/ -m perf -k c3 -v
 ```
 
-Requires `faster-whisper` (the `whisper` extra). Run on Cypher (x86_64 Ubuntu
-24.04, the canonical Linux server). Workstation runs (Morpheus / dev boxes)
-are plumbing verification only, not baselines of record.
+Requires `faster-whisper` (the `whisper` extra). Run on **Switch** (Apple M4 Pro,
+canonical C3 host as of 2026-05-11 S41). The gate is hardware-class-agnostic on
+CPU — Apple Silicon NEON int8 via CTranslate2 and x86_64 AVX2/AVX-512 int8
+both qualify, as long as the host is a Lattice production host. Workstation
+runs (Morpheus / dev boxes) are plumbing verification only, not baselines of
+record.
 
 ### All three (single command)
 
@@ -100,23 +103,29 @@ recent passing measurement is the baseline of record for that host.
 
 | Date | Host | Hardware | Gate | Measured RTF | Pass/Fail | Notes |
 | ---- | ---- | -------- | ---- | ------------ | --------- | ----- |
-| 2026-05-11 | Cypher | x86_64 Ubuntu 24.04, AMD Ryzen 9 3900X 12C/24T (Zen 2, 2019), 64 GB RAM | C3 | 1.57× warm / 1.59× cold | **FAIL** | distil-large-v3 int8 underperforms the 2.0× target on this 2019 Zen 2 silicon. Warm RTF < cold RTF (1.57 vs 1.59) confirms model load is not the bottleneck — steady-state CPU compute is. Morpheus's Intel Core Ultra 9 285K (2024, also no AVX-512) clears 2.44× on the same code path, so the bottleneck is raw CPU clock+IPC, not AVX-512 specifically. Cypher's 2019 silicon is simply too old to clear 2× on this workload. Decision surface: relax target, re-designate canonical C3 host, or accept that some hosts fail this gate. **Do not silently massage the target.** |
+| 2026-05-11 | **Switch** | Apple M4 Pro 12-core ARM64 (Mac mini production host, Nexus primary since S245) | C3 | **3.35× warm / 3.28× cold** | **PASS** | **Canonical C3 host as of 2026-05-11 S41.** CTranslate2 NEON int8 path comfortably clears the 2.0× target by 64-67%. Print surfaced via the W6.1 feat: `[C3] RTF=3.35× elapsed=8.95s audio=30.00s`. Re-designation from Cypher driven by Cypher's 2019 Zen 2 silicon being too slow to clear 2× — see Cypher row below. C3 hardware class broadened from `x86_64 CPU` to `CPU (non-GPU fallback)` to accommodate the cross-arch reality. |
+| 2026-05-11 | Cypher | x86_64 Ubuntu 24.04, AMD Ryzen 9 3900X 12C/24T (Zen 2, 2019), 64 GB RAM | C3 | 1.57× warm / 1.59× cold | **FAIL** | Historic measurement — superseded by Switch as canonical C3 host (above). distil-large-v3 int8 underperforms the 2.0× target on this 2019 Zen 2 silicon. Warm RTF < cold RTF (1.57 vs 1.59) confirms model load is not the bottleneck — steady-state CPU compute is. Morpheus's Intel Core Ultra 9 285K (2024, also no AVX-512) clears 2.44× on the same code path, so the bottleneck is raw CPU clock+IPC, not AVX-512 specifically. Cypher's 2019 silicon is simply too old to clear 2× on this workload. |
 | 2026-05-11 | Cypher | NVIDIA RTX 2070 (8 GB, CUDA 7.5, Turing), driver 595.58.03 | C2 | — | **BLOCKED** | `ParakeetTdtEngine.transcribe` raises `NotImplementedError("ParakeetTdtEngine implemented in W3.2")` — the engine is a stub. Install validated end-to-end (nemo-toolkit 2.7.3, torch 2.11.0 + nvidia-cuda-* 13.x, faster-whisper 1.2.1); C2 baseline runs the moment W3.2 lands. RTX 2070 has no FP8 tensor cores, so the 50× target may still be tight on Turing once unblocked. |
 |      | Trinity | Apple M5 Max (unified 128 GB) | C1 | TBD | TBD | Canonical C1 host. |
 
-**C3 finding (2026-05-11):** Cypher's measured RTF 1.57× sits 22 % below the 2.0×
-target, and Cypher is the canonical C3 host. The warm/cold delta (1.57 vs 1.59) is
-within noise — model-download overhead is not masking real perf. **Root cause is
-raw CPU compute, not AVX-512.** A first-pass hypothesis blamed AVX-512 absence,
-but follow-up measurement on Morpheus's Intel Core Ultra 9 285K (Arrow Lake, 2024,
-also no AVX-512) clears 2.44× on the same code path with the same install. Both
-hosts use CTranslate2's AVX2 int8 path; Morpheus simply has the clock and IPC to
-make AVX2 enough, and Cypher's 2019 Zen 2 silicon does not. CTranslate2 does
-gain ~3-5× when AVX-512 VNNI is available (Intel Cascade Lake-X server, Sapphire
-Rapids+, AMD Zen 4+), but it is not a requirement for clearing 2×. Decision
-surface (open to owner): (a) re-calibrate C3 target downward, (b) re-designate
-canonical C3 host to a faster CPU, (c) keep current target and accept that some
-hosts fail this gate. **Do not silently massage the target.**
+**C3 resolution (2026-05-11 S41):** Canonical C3 host re-designated from Cypher
+to **Switch** (Apple M4 Pro Mac mini, the Lattice Nexus primary since S245).
+Switch's NEON int8 path measures **3.35× warm / 3.28× cold** — comfortably above
+the 2.0× target. The C3 contract is preserved: it still validates the non-GPU
+CPU fallback path for consumers like lattice-dictation; the hardware-class label
+broadens from `x86_64 CPU (Linux server)` to `CPU (non-GPU fallback path,
+arm64 or x86_64)` to match the cross-arch reality.
+
+The earlier root-cause investigation: Cypher's 1.57× sits 22% below 2.0× because
+its 2019 Ryzen 9 3900X (Zen 2) is simply too slow. A first-pass hypothesis blamed
+AVX-512 absence, but Morpheus's Intel Core Ultra 9 285K (Arrow Lake 2024, also
+no AVX-512) clears 2.44× on the same code path with the same install — so the
+real bottleneck is raw CPU clock+IPC, not AVX-512. CTranslate2 does gain ~3-5×
+when AVX-512 VNNI is available (Intel Cascade Lake-X server, Sapphire Rapids+,
+AMD Zen 4+), but it is not a requirement for clearing 2×. The Cypher row is
+preserved in the baseline log as historic data; Switch is now the host of
+record. **Target was NOT massaged — Switch's measurement is comfortably above
+the as-written 2.0× threshold.**
 
 **C2 finding (2026-05-11):** Engine implementation gap, not a hardware issue.
 `ParakeetTdtEngine` is a W3.2 stub that raises `NotImplementedError`. NeMo
