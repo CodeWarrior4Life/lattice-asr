@@ -40,7 +40,7 @@ dependencies = [
 
 [project.optional-dependencies]
 whisper = ["faster-whisper>=1.0"]
-parakeet = ["parakeet-cpp-py>=0.1; sys_platform == 'darwin' and platform_machine == 'arm64'"]
+parakeet = ["parakeet-mlx>=0.5; sys_platform == 'darwin' and platform_machine == 'arm64'"]
 nvidia = ["nemo-toolkit[asr]>=2.0; sys_platform == 'linux'"]
 diarize = ["pyannote.audio>=3.1"]
 remote = ["fastapi>=0.110", "uvicorn[standard]>=0.27"]

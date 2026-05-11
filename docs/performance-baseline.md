@@ -111,8 +111,8 @@ recent passing measurement is the baseline of record for that host.
 | ---- | ---- | -------- | ---- | ------------ | --------- | ----- |
 | 2026-05-11 | **Switch** | Apple M4 Pro 12-core ARM64 (Mac mini production host, Nexus primary since S245) | C3 | **3.35× warm / 3.28× cold** | **PASS** | **Canonical C3 host as of 2026-05-11 S41.** CTranslate2 NEON int8 path comfortably clears the 2.0× target by 64-67%. Print surfaced via the W6.1 feat: `[C3] RTF=3.35× elapsed=8.95s audio=30.00s`. Re-designation from Cypher driven by Cypher's 2019 Zen 2 silicon being too slow to clear 2× — see Cypher row below. C3 hardware class broadened from `x86_64 CPU` to `CPU (non-GPU fallback)` to accommodate the cross-arch reality. |
 | 2026-05-11 | Cypher | x86_64 Ubuntu 24.04, AMD Ryzen 9 3900X 12C/24T (Zen 2, 2019), 64 GB RAM | C3 | 1.57× warm / 1.59× cold | **FAIL** | Historic measurement — superseded by Switch as canonical C3 host (above). distil-large-v3 int8 underperforms the 2.0× target on this 2019 Zen 2 silicon. Warm RTF < cold RTF (1.57 vs 1.59) confirms model load is not the bottleneck — steady-state CPU compute is. Morpheus's Intel Core Ultra 9 285K (2024, also no AVX-512) clears 2.44× on the same code path, so the bottleneck is raw CPU clock+IPC, not AVX-512 specifically. Cypher's 2019 silicon is simply too old to clear 2× on this workload. |
-| 2026-05-11 | Cypher | NVIDIA RTX 2070 (8 GB, CUDA 7.5, Turing), driver 595.58.03 | C2 | — | **BLOCKED** | `ParakeetTdtEngine.transcribe` raises `NotImplementedError("ParakeetTdtEngine implemented in W3.2")` — the engine is a stub. Install validated end-to-end (nemo-toolkit 2.7.3, torch 2.11.0 + nvidia-cuda-* 13.x, faster-whisper 1.2.1); C2 baseline runs the moment W3.2 lands. RTX 2070 has no FP8 tensor cores, so the 50× target may still be tight on Turing once unblocked. |
-| 2026-05-11 | Switch | Apple M4 Pro 12-core ARM64 (Mac mini production host) | C1 | — | **BLOCKED** | `ParakeetCppEngine.transcribe` raises `NotImplementedError("ParakeetCppEngine implemented in W3.1")` AND `parakeet-cpp-py>=0.1` is not published to PyPI (`ERROR: No matching distribution found for parakeet-cpp-py>=0.1`). C1 baseline runs the moment W3.1 ships AND the upstream wrapper lands. Trinity (M5 Max) is **NOT** canonical — it's the user's laptop, not a Lattice production host. |
+| 2026-05-11 | Switch | Apple M4 Pro 12-core ARM64 (Mac mini production host) | C1 | **15.13× (upstream-direct)** | **PASS (via direct API call); lattice-asr wrapper PENDING** | Direct invocation of upstream `parakeet-mlx` (PyPI 0.5.1, Apache 2.0, MLX runtime) via `from parakeet_mlx import from_pretrained; model.transcribe(...)` on `mlx-community/parakeet-tdt-0.6b-v3` measured RTF 15.13× (1.98s for 30s audio). Comfortably clears the 10× target. **The lattice-asr W3.1 `ParakeetCppEngine.transcribe()` wrapper is still a stub** — once it delegates to parakeet-mlx, the C1 perf gate will pass. **pyproject.toml `parakeet` extra was previously bound to phantom `parakeet-cpp-py>=0.1` (does NOT exist on PyPI, never did). Corrected to `parakeet-mlx>=0.5` in this commit.** Class name `ParakeetCppEngine` should be renamed to `ParakeetMlxEngine` when W3.1 implements; left for the implementation commit to avoid a cosmetic-only refactor. |
+| 2026-05-11 | Cypher | NVIDIA RTX 2070 (8 GB, CUDA 7.5, Turing), driver 595.58.03 | C2 | **64.13× (upstream-direct)** | **PASS (via direct API call); lattice-asr wrapper PENDING** | Direct invocation of upstream `nemo-toolkit[asr]` 2.7.3 via `import nemo.collections.asr as nemo_asr; nemo_asr.models.ASRModel.from_pretrained("nvidia/parakeet-tdt-0.6b-v3").transcribe(...)` measured RTF 64.13× (0.47s for 30s audio) on RTX 2070 (Turing, sm_75). Comfortably clears the 50× target — and notably works on Turing despite NVIDIA's HF model card listing only Ampere+/Volta/T4 as supported. **The lattice-asr W3.2 `ParakeetTdtEngine.transcribe()` wrapper is still a stub** — once it delegates to nemo-toolkit, the C2 perf gate will pass. RTX 2070 has no FP8 tensor cores; the 50× target is cleared by ~28% headroom on Turing, so future Ampere+ hosts should clear it more comfortably. |
 
 **C3 resolution (2026-05-11 S41):** Canonical C3 host re-designated from Cypher
 to **Switch** (Apple M4 Pro Mac mini, the Lattice Nexus primary since S245).
@@ -133,22 +133,74 @@ preserved in the baseline log as historic data; Switch is now the host of
 record. **Target was NOT massaged — Switch's measurement is comfortably above
 the as-written 2.0× threshold.**
 
-**C1 finding (2026-05-11):** Engine implementation gap PLUS missing upstream
-package. `ParakeetCppEngine` is a W3.1 stub that raises `NotImplementedError`,
-AND `parakeet-cpp-py>=0.1` (the upstream Python wrapper) is not yet published
-to PyPI — `pip install -e ".[parakeet]"` on Switch fails with `ERROR: No
-matching distribution found for parakeet-cpp-py>=0.1`. C1 baseline runs the
-moment both ship. Canonical host = Switch (Apple M4 Pro Mac mini), the only
-Apple Silicon production host on the lattice. Trinity (Apple M5 Max) is the
-user's laptop, not a Lattice production host, and is NOT canonical (same
-production-host rule that excludes Morpheus).
+**Upstream verification (2026-05-11, post-investigation):**
 
-**C2 finding (2026-05-11):** Engine implementation gap, not a hardware issue.
-`ParakeetTdtEngine` is a W3.2 stub that raises `NotImplementedError`. NeMo
-toolkit + torch + CUDA install successfully on Cypher (verified by import); the
-C2 gate runs the moment W3.2 (NVIDIA Parakeet-TDT NeMo engine) lands. RTX 2070
-(Turing, no FP8 tensor cores) may also struggle vs the 50× target once
-unblocked — re-verify at that point.
+The earlier "C1 + C2 BLOCKED" narrative pinned blame on missing upstream packages
+and unimplemented lattice-asr engine wrappers in equal measure. Investigation
+proved the upstream side is fine — the only real gap is the lattice-asr wrapper
+code (W3.1 + W3.2).
+
+**C1 (Apple Silicon parakeet):** The `parakeet-cpp-py>=0.1` dependency the
+`parakeet` extra pointed at **does not exist on PyPI and never did** (404 on
+`https://pypi.org/pypi/parakeet-cpp-py/json`). The plan committed lattice-asr to
+a phantom package. The actual Apple Silicon Parakeet Python runtime is
+**`parakeet-mlx`** (PyPI 0.5.1, Apache 2.0, by senstella) — uses Apple's MLX
+framework rather than the C++ binding the plan assumed. Direct API invocation
+on Switch (M4 Pro):
+
+```python
+from parakeet_mlx import from_pretrained
+model = from_pretrained("mlx-community/parakeet-tdt-0.6b-v3")
+result = model.transcribe("tests/fixtures/audio/hello-en-30s.wav")
+# RTF 15.13× (1.98s for 30s audio) — clears 10× target by 51%
+```
+
+`pyproject.toml` corrected in this commit. The lattice-asr engine class
+`ParakeetCppEngine` is still mis-named (refers to a C++ binding that doesn't
+exist in Python); rename to `ParakeetMlxEngine` is owned by the W3.1 commit
+that writes `transcribe()`. There is also `Frikallo/parakeet.cpp` on GitHub
+(an actual C++ library with Metal acceleration, 96× speedup on Apple Silicon,
+~27 ms encoder inference) — but it ships only a C API + no Python binding;
+wrapping it would be net-new work and is NOT what the lattice-asr plan needs
+for v0.1.
+
+**C2 (NVIDIA parakeet-tdt):** Upstream is `nemo-toolkit[asr]>=2.0` — already
+correctly named in `pyproject.toml`. Direct API invocation on Cypher (RTX 2070
+Turing, sm_75):
+
+```python
+import nemo.collections.asr as nemo_asr
+asr = nemo_asr.models.ASRModel.from_pretrained("nvidia/parakeet-tdt-0.6b-v3")
+output = asr.transcribe(["tests/fixtures/audio/hello-en-30s.wav"])
+# RTF 64.13× (0.47s for 30s audio) — clears 50× target by 28%
+```
+
+The NVIDIA HF model card lists "Ampere/Hopper/Blackwell/Volta/T4" as supported,
+omitting Turing-class RTX cards — but the RTX 2070 is `sm_75` (same generation
+as T4), and the inference path works fine in practice.
+
+**Both engines are implementable today.** Total remaining v0.1 work:
+
+| Item | Effort | Status |
+| ---- | ------ | ------ |
+| pyproject.toml `parakeet` extra correction | ~1 LOC | LANDED in this commit |
+| `ParakeetCppEngine.transcribe()` → `ParakeetMlxEngine.transcribe()` (W3.1) | ~30 LOC + class rename | PENDING |
+| `ParakeetTdtEngine.transcribe()` (W3.2) | ~30 LOC | PENDING |
+| W6.2 CI (arm64 macOS + CUDA runners) | YAML + secrets | PENDING |
+| W6.3 README rewrite | doc only | PENDING |
+| v0.1.0 tag + PyPI publish | release step | PENDING |
+
+Once W3.1 + W3.2 ship, all three perf gates (C1, C2, C3) will be measured
+through the lattice-asr engine layer, not via direct upstream invocation.
+Expected RTFs at that point: ≥15× C1 on Switch, ≥64× C2 on Cypher, 3.35× C3
+on Switch.
+
+**Lesson for the plan:** Verify every upstream dependency exists on PyPI (and
+that its actual API matches what the plan assumes) BEFORE locking it into
+`pyproject.toml`. The `parakeet-cpp-py` reference survived from plan to repo
+to spec to perf gate to first install attempt — six places that could have
+caught it. None did. A 5-second `curl https://pypi.org/pypi/parakeet-cpp-py/json`
+during plan authoring would have surfaced this immediately.
 
 **Plumbing verification (not a baseline of record):** 2026-05-11 on Morpheus
 (Windows workstation, Intel Core Ultra 9 285K — Arrow Lake desktop, no AVX-512),
