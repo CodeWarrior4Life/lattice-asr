@@ -1,0 +1,26 @@
+# Coverage config used by github-hosted CI r_tier matrix only.
+#
+# Why a separate file: hardware-gated engine modules (parakeet-mlx requires
+# Apple Silicon; nemo parakeet-tdt requires CUDA) cannot be imported in a
+# CPU-only github-hosted runner. Their source files therefore contribute
+# 0% line coverage to the global denominator, dragging the CI total below
+# the 65% gate that holds locally (79.15% on Morpheus with the full dev env
+# per S41 vault note).
+#
+# The omitted modules are still exercised by:
+#   - r_tier mocks at tests/test_engines/ for behaviour
+#   - the C1/C2 self-hosted perf jobs which DO import them
+# So coverage of these files lives in the self-hosted gate, not the hosted
+# gate. The local `pyproject.toml` config (fail_under=65, no omit) remains
+# the canonical full-env gate for dev machines.
+
+[run]
+source_pkgs = lattice_asr
+branch = True
+omit =
+    */lattice_asr/engines/parakeet_mlx.py
+    */lattice_asr/engines/parakeet_tdt.py
+
+[report]
+fail_under = 65
+show_missing = True
