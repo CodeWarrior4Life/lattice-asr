@@ -94,10 +94,10 @@ recent passing measurement is the baseline of record for that host.
 
 | Date | Host | Hardware | Gate | Measured RTF | Pass/Fail | Notes |
 | ---- | ---- | -------- | ---- | ------------ | --------- | ----- |
-|      | Morpheus | NVIDIA RTX 5080 (16 GB), CUDA 12.x | C2 | TBD | TBD |       |
-|      | Morpheus | x86_64 8-core CPU | C3 | TBD | TBD |       |
-|      | Trinity | Apple M5 Max (unified 128 GB) | C1 | TBD | TBD |       |
-|      | Cypher | Apple Silicon | C1 | TBD | TBD |       |
+| 2026-05-11 | Morpheus | x86_64 (Windows) CPU | C3 | 1.998 (cold) / pass (warm, ~20s wall) | plumbing-verify only | Cold run = model download concurrent; warm run passed but RTF not captured (test doesn't print). Dev box; not a baseline of record. |
+|      | Cypher | x86_64 Ubuntu 24.04, 8-core CPU | C3 | TBD | TBD | Canonical C3 host. |
+|      | Cypher | NVIDIA RTX 2070 (8 GB, CUDA 7.5) | C2 | TBD | TBD | Canonical C2 host (Morpheus RTX 5080 is Windows; `nvidia` extra is Linux-only per pyproject). |
+|      | Trinity | Apple M5 Max (unified 128 GB) | C1 | TBD | TBD | Canonical C1 host. |
 
 ## Notes
 
