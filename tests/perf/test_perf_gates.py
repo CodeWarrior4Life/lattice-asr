@@ -30,6 +30,9 @@ async def test_c1_apple_silicon_parakeet_cpp_10x_rtf(hello_en_30s_wav):
     elapsed = time.monotonic() - t0
     rtf = (result.audio_duration_ms / 1000) / elapsed
     assert rtf > 10.0, f"C1 fail: rtf={rtf:.1f}× expected >10×"
+    print(
+        f"\n[C1] RTF={rtf:.2f}× elapsed={elapsed:.2f}s audio={result.audio_duration_ms / 1000:.2f}s"
+    )
 
 
 @perfonly
@@ -47,6 +50,9 @@ async def test_c2_nvidia_parakeet_tdt_50x_rtf(hello_en_30s_wav):
     elapsed = time.monotonic() - t0
     rtf = (result.audio_duration_ms / 1000) / elapsed
     assert rtf > 50.0, f"C2 fail: rtf={rtf:.1f}× expected >50×"
+    print(
+        f"\n[C2] RTF={rtf:.2f}× elapsed={elapsed:.2f}s audio={result.audio_duration_ms / 1000:.2f}s"
+    )
 
 
 @perfonly
@@ -63,3 +69,6 @@ async def test_c3_cpu_distil_2x_rtf(hello_en_30s_wav):
     elapsed = time.monotonic() - t0
     rtf = (result.audio_duration_ms / 1000) / elapsed
     assert rtf > 2.0, f"C3 fail: rtf={rtf:.1f}× expected >2×"
+    print(
+        f"\n[C3] RTF={rtf:.2f}× elapsed={elapsed:.2f}s audio={result.audio_duration_ms / 1000:.2f}s"
+    )
