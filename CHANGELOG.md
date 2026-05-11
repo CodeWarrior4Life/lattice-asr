@@ -53,7 +53,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Coverage: 79.15%+ (v0.1 65% gate cleared).
 
 ### Pending (v0.1)
-- W3: `ParakeetCppEngine` (Apple Silicon), `ParakeetTdtEngine` (NVIDIA), `WhisperCppEngine` (Apple Silicon Metal) — needs Mac and NVIDIA runners respectively.
+- W3.1: `ParakeetMlxEngine` (Apple Silicon, MLX runtime via `parakeet-mlx`; class to be renamed from current `ParakeetCppEngine` stub which referenced the phantom `parakeet-cpp-py` — see commit `a4e5922` for `pyproject.toml` correction). Upstream verified 2026-05-11 on Switch: RTF 15.13×.
+- W3.2: `ParakeetTdtEngine` (NVIDIA via `nemo-toolkit[asr]`). Upstream verified 2026-05-11 on Cypher RTX 2070: RTF 64.13×.
+- W3 future: `WhisperCppEngine` (Apple Silicon Metal multilingual).
 - W6.2: `.github/workflows/ci.yml` (needs `workflow`-scoped gh token).
 - W6.3: README quickstart rewrite + adoption-tracker doc.
 - W6.4 / v0.1.0: tag + PyPI publish (owner-gated).
