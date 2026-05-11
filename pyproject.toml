@@ -80,6 +80,9 @@ markers = [
     "r_tier: regression tier (fast, mock-based, run on every commit)",
     "s_tier: smoke tier (real engines, run nightly)",
     "e_tier: end-to-end tier (real audio, real hardware, opt-in)",
+    "apple_silicon: requires Apple Silicon (skipped elsewhere)",
+    "nvidia_cuda: requires NVIDIA CUDA-capable GPU (skipped elsewhere)",
+    "perf: performance gate, opt-in via LATTICE_ASR_PERF_RUN=1",
 ]
 
 [tool.coverage.run]
