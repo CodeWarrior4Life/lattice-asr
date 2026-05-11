@@ -2,7 +2,7 @@
 
 Hardware-adaptive multilingual ASR library for the Lattice family.
 
-> **Status:** v0.1 scaffold, no implementation yet. Spec is locked. Implementation lands in subsequent sessions.
+> **Status:** v0.1 implementation in progress. W1 (foundation), W2 (Whisper + LID + Transcriber), and W4 (RemoteEngine + lattice-asr-server) are landed; W3 (Apple Silicon engines) and W5 (diarization) are pending. 69 r_tier tests passing. See [CHANGELOG.md](CHANGELOG.md) for the unreleased detail.
 
 ## What it is
 
@@ -26,8 +26,13 @@ Speaker identification (deferred to a future `lattice-voiceprint`), on-device fi
 | Phase | State |
 | --- | --- |
 | Spec | Locked — vault `02_Projects/Lattice/lattice-asr/Specifications/2026-04-27 lattice-asr v1 - Design Spec.md` |
-| Plan | Pending |
-| Implementation | Pending — repo scaffolded S13 (2026-05-08) |
+| Plan | Ratified and in execution — vault `02_Projects/Lattice/lattice-asr/Plans/2026-05-08 lattice-asr v0.1 - Implementation Plan.md` |
+| W1 Foundation | Landed (hardware probe, types, telemetry, config) |
+| W2 Whisper + LID + Transcriber MVP | Landed |
+| W3 Apple Silicon engines | Pending (needs Mac runner) |
+| W4 RemoteEngine + lattice-asr-server | Landed |
+| W5 Diarization | Pending (needs `HF_TOKEN`) |
+| W6 Ship (perf, CI, release) | Pending |
 | First consumer | `lattice-dictate` (planned) |
 | Second consumer | `lattice-meetbot` (refactored transcription path) |
 
