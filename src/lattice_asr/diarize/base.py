@@ -18,16 +18,23 @@ def merge_segments_with_text(
 ) -> list[SpeakerSegment]:
     """Spec §7.3: merge transcription text into speaker timeline by midpoint.
 
-    For each speaker segment, gather transcription segments whose midpoint falls
-    within [start_ms, end_ms]; concatenate text.
+    Each transcription segment is assigned to the FIRST speaker (in input order)
+    whose [start_ms, end_ms] range covers the transcription midpoint. The earlier
+    speaker wins ties on shared boundaries (so adjacent A=[0,3000], B=[3000,6000]
+    with mid=3000 goes to A only); this also prevents double-counting when
+    diarizer outputs overlap.
     """
+    assigned = [False] * len(transcription_segments)
     out: list[SpeakerSegment] = []
     for sp in speaker_segments:
         joined = []
-        for tx in transcription_segments:
+        for i, tx in enumerate(transcription_segments):
+            if assigned[i]:
+                continue
             mid = (tx.start_ms + tx.end_ms) // 2
             if sp.start_ms <= mid <= sp.end_ms:
                 joined.append(tx.text.strip())
+                assigned[i] = True
         text = " ".join(t for t in joined if t).strip()
         out.append(
             SpeakerSegment(
