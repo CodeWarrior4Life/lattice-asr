@@ -36,7 +36,19 @@ class ParakeetTdtEngine(TranscriptionEngine):
         )
 
     async def warmup(self) -> None:
+        """Load the model and pay the one-time CUDA-kernel compile cost.
+
+        NeMo's first transcribe() call after model load triggers CUDA kernel JIT compile
+        (~0.5s on RTX 2070); without absorbing that here the first user-facing transcribe()
+        runs slow. Synthesize ~0.5s of silence (RIFF 16 kHz mono) and run a throwaway
+        transcribe to prime the GPU.
+        """
         await asyncio.to_thread(self._ensure_model)
+        # 0.5s of silence: 8000 samples × 2 bytes (16-bit PCM mono @ 16 kHz).
+        # Warmup is best-effort; a failed dummy inference must not block engine use.
+        silence = b"\x00" * (8000 * 2)
+        with contextlib.suppress(Exception):
+            await self.transcribe(silence, sample_rate=16000, language="en")
 
     def _ensure_model(self) -> Any:
         if self._model is None:
