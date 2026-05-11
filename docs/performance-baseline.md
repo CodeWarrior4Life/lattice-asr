@@ -100,19 +100,23 @@ recent passing measurement is the baseline of record for that host.
 
 | Date | Host | Hardware | Gate | Measured RTF | Pass/Fail | Notes |
 | ---- | ---- | -------- | ---- | ------------ | --------- | ----- |
-| 2026-05-11 | Cypher | x86_64 Ubuntu 24.04, AMD Ryzen 9 3900X 12C/24T (Zen 2, no AVX-512), 64 GB RAM | C3 | 1.57× warm / 1.59× cold | **FAIL** | distil-large-v3 int8 underperforms the 2.0× target on Zen 2. Warm RTF < cold RTF (1.57 vs 1.59) confirms model load is not the bottleneck — steady-state CPU throughput is. Faster-whisper int8 leans heavily on AVX-512 (Zen 4+ / Intel Sapphire Rapids+). Owner decision: relax target, re-designate canonical C3 host, or accept that some hosts fail this gate. **Do not silently massage the target.** |
+| 2026-05-11 | Cypher | x86_64 Ubuntu 24.04, AMD Ryzen 9 3900X 12C/24T (Zen 2, 2019), 64 GB RAM | C3 | 1.57× warm / 1.59× cold | **FAIL** | distil-large-v3 int8 underperforms the 2.0× target on this 2019 Zen 2 silicon. Warm RTF < cold RTF (1.57 vs 1.59) confirms model load is not the bottleneck — steady-state CPU compute is. Morpheus's Intel Core Ultra 9 285K (2024, also no AVX-512) clears 2.44× on the same code path, so the bottleneck is raw CPU clock+IPC, not AVX-512 specifically. Cypher's 2019 silicon is simply too old to clear 2× on this workload. Decision surface: relax target, re-designate canonical C3 host, or accept that some hosts fail this gate. **Do not silently massage the target.** |
 | 2026-05-11 | Cypher | NVIDIA RTX 2070 (8 GB, CUDA 7.5, Turing), driver 595.58.03 | C2 | — | **BLOCKED** | `ParakeetTdtEngine.transcribe` raises `NotImplementedError("ParakeetTdtEngine implemented in W3.2")` — the engine is a stub. Install validated end-to-end (nemo-toolkit 2.7.3, torch 2.11.0 + nvidia-cuda-* 13.x, faster-whisper 1.2.1); C2 baseline runs the moment W3.2 lands. RTX 2070 has no FP8 tensor cores, so the 50× target may still be tight on Turing once unblocked. |
 |      | Trinity | Apple M5 Max (unified 128 GB) | C1 | TBD | TBD | Canonical C1 host. |
 
 **C3 finding (2026-05-11):** Cypher's measured RTF 1.57× sits 22 % below the 2.0×
 target, and Cypher is the canonical C3 host. The warm/cold delta (1.57 vs 1.59) is
-within noise — model-download overhead is not masking real perf. Root cause is
-the AMD Ryzen 9 3900X's lack of AVX-512: faster-whisper int8 on CPU is
-AVX-512-bound on the inner GEMM kernels. Hosts with AVX-512 (Zen 4+, Intel
-Sapphire Rapids+, Apple silicon via Accelerate) should clear 2.0× comfortably.
-Decision surface (open to owner): (a) re-calibrate C3 target downward, (b)
-re-designate canonical C3 host to an AVX-512 box, (c) keep current target and
-accept that some hosts fail this gate. **Do not silently massage the target.**
+within noise — model-download overhead is not masking real perf. **Root cause is
+raw CPU compute, not AVX-512.** A first-pass hypothesis blamed AVX-512 absence,
+but follow-up measurement on Morpheus's Intel Core Ultra 9 285K (Arrow Lake, 2024,
+also no AVX-512) clears 2.44× on the same code path with the same install. Both
+hosts use CTranslate2's AVX2 int8 path; Morpheus simply has the clock and IPC to
+make AVX2 enough, and Cypher's 2019 Zen 2 silicon does not. CTranslate2 does
+gain ~3-5× when AVX-512 VNNI is available (Intel Cascade Lake-X server, Sapphire
+Rapids+, AMD Zen 4+), but it is not a requirement for clearing 2×. Decision
+surface (open to owner): (a) re-calibrate C3 target downward, (b) re-designate
+canonical C3 host to a faster CPU, (c) keep current target and accept that some
+hosts fail this gate. **Do not silently massage the target.**
 
 **C2 finding (2026-05-11):** Engine implementation gap, not a hardware issue.
 `ParakeetTdtEngine` is a W3.2 stub that raises `NotImplementedError`. NeMo
@@ -122,13 +126,18 @@ C2 gate runs the moment W3.2 (NVIDIA Parakeet-TDT NeMo engine) lands. RTX 2070
 unblocked — re-verify at that point.
 
 **Plumbing verification (not a baseline of record):** 2026-05-11 on Morpheus
-(Windows workstation), C3 cold run measured RTF 1.998 (failed by 0.002 — concurrent
-model download); warm run passed in ~20 s wall clock. Validated fixture-load,
-marker-filter, gate-evaluation, and engine-warmup path end-to-end. Morpheus does
-not appear in canonical baselines. Note: Morpheus's 1.998 cold edges Cypher's
-1.59 cold despite the workstation-vs-server inversion — the Cypher 3900X is a
-2019 Zen 2 part and is likely the slower CPU here. Reinforces the canonical-C3
-host re-think.
+(Windows workstation, Intel Core Ultra 9 285K — Arrow Lake desktop, no AVX-512),
+C3 measured **RTF 2.44× (PASS)** with model cache warm (downloaded by an earlier
+S40 run, served from HF cache during warmup) in a fresh Python 3.11 +
+faster-whisper 1.2.1 + CTranslate2 4.7.1 venv at `D:/Dev/lattice-asr`. Print
+surfaced via the new feat commit: `[C3] RTF=2.44 elapsed=12.31s audio=30.00s`.
+Validated fixture-load, marker-filter, gate-evaluation, engine-warmup path
+end-to-end, AND that the 2.0× target is achievable on modern no-AVX-512 silicon.
+Morpheus is the user's personal workstation, not a Lattice production host, so
+does NOT appear in canonical baselines — but the measurement is the cleanest
+proof that the algorithm is fine; the bottleneck is just Cypher's age. An
+earlier S40 measurement of 1.998× cold on Morpheus was contaminated by concurrent
+HF model download bleeding into the warmup; this 2.44× run is the clean retest.
 
 ## Notes
 
