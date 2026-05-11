@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `lattice-asr-server` console script entry point.
 - In-process server↔client round-trip integration test (`tests/test_remote_integration.py`) using `httpx.ASGITransport`.
 
+#### W3 — Parakeet engines (spec §6.1, §6.2)
+- `ParakeetMlxEngine` (`src/lattice_asr/engines/parakeet_mlx.py`) — Apple Silicon MLX runtime via `parakeet-mlx` (PyPI 0.5.1). Lazy `from_pretrained` (default `mlx-community/parakeet-tdt-0.6b-v3`); PCM-or-WAV bytes via tempfile; `asyncio.to_thread` wrapping. **Renamed from `ParakeetCppEngine` / `parakeet_cpp.py`** — the prior name referenced the phantom `parakeet-cpp-py` dependency that never shipped to PyPI (see `a4e5922`). Force-engine string `"parakeet.cpp"` -> `"parakeet-mlx"`; capability name updated; transcriber registry and r_tier selection test renamed in lockstep. C1 perf gate verified on Switch (Apple M4 Pro) at **RTF 45.43× via wrapper** (>10× target, 3× the S41 direct-API 15.13× baseline — model cached). Commit `e4d6a66`.
+- `ParakeetTdtEngine` (`src/lattice_asr/engines/parakeet_tdt.py`) — NVIDIA via `nemo-toolkit[asr]`. Lazy `nemo_asr.models.ASRModel.from_pretrained` (default `nvidia/parakeet-tdt-0.6b-v3`, replacing the un-verified `parakeet-tdt-1.1b-v3` reference); `asyncio.to_thread` wrapping. Warmup absorbs CUDA-kernel JIT compile via a 0.5 s silence dummy inference (RTX 2070 Turing pays this on first transcribe; without it the first timed run measured 32–43× cold/loaded — failing the 50× gate even with a fast direct-API number). C2 perf gate verified on Cypher (RTX 2070 sm_75) at **RTF 115.12× via wrapper** (>50× target, ~2× the S41 direct-API 64.13× baseline — warmup absorbing kernel compile is the delta). Commits `8289072` + `8b17997`.
+
 #### W5 — Diarization (spec §7)
 - `Diarizer` ABC + `merge_segments_with_text` helper (`src/lattice_asr/diarize/base.py`). Merge is first-match-wins on shared boundaries (the earlier speaker in input order claims a transcription whose midpoint falls on a shared boundary; prevents double-counting when intervals overlap).
 - `PyAnnoteAdapter` (`src/lattice_asr/diarize/pyannote.py`) — lazy pyannote.audio import; raises clear `ValueError` if `HF_TOKEN` env / `auth_token` kwarg absent.
@@ -40,7 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - W5 r_tier unit tests across pyannote scaffold, sortformer scaffold, 6 segment-merge boundary cases, and 3 Transcriber-wire-in cases (pyannote default, sortformer override, unknown-adapter ValueError).
 
 #### W6 — Ship (partial, spec §12.3)
-- **W6.1 perf-gate skeleton** (`tests/perf/test_perf_gates.py`) — C1 (Apple Silicon parakeet.cpp >10× RTF), C2 (NVIDIA parakeet-tdt >50× RTF), C3 (CPU faster-whisper distil-large-v3 int8 >2× RTF). Opt-in behind `LATTICE_ASR_PERF_RUN=1`; r_tier suite unaffected.
+- **W6.1 perf-gate skeleton** (`tests/perf/test_perf_gates.py`) — C1 (Apple Silicon parakeet-mlx >10× RTF), C2 (NVIDIA parakeet-tdt >50× RTF), C3 (CPU faster-whisper distil-large-v3 int8 >2× RTF). Opt-in behind `LATTICE_ASR_PERF_RUN=1`; r_tier suite unaffected. As of S42 all three gates clear via wrappers on canonical hosts (Switch for C1+C3, Cypher for C2).
 - `hello_en_30s_wav` session-scope fixture added to `tests/conftest.py` (mirrors `hello_en_2s_wav` pattern; HF dataset `CodeWarrior4Life/lattice-asr-fixtures` currently 401-unauth, local fallback at `tests/fixtures/audio/hello-en-30s.wav` documented).
 - `docs/performance-baseline.md` — gate table, how-to-run per gate, fixture-status note, baseline log placeholders for Morpheus / Trinity / Cypher.
 
@@ -53,11 +57,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Coverage: 79.15%+ (v0.1 65% gate cleared).
 
 ### Pending (v0.1)
-- W3.1: `ParakeetMlxEngine` (Apple Silicon, MLX runtime via `parakeet-mlx`; class to be renamed from current `ParakeetCppEngine` stub which referenced the phantom `parakeet-cpp-py` — see commit `a4e5922` for `pyproject.toml` correction). Upstream verified 2026-05-11 on Switch: RTF 15.13×.
-- W3.2: `ParakeetTdtEngine` (NVIDIA via `nemo-toolkit[asr]`). Upstream verified 2026-05-11 on Cypher RTX 2070: RTF 64.13×.
-- W3 future: `WhisperCppEngine` (Apple Silicon Metal multilingual).
-- W6.2: `.github/workflows/ci.yml` (needs `workflow`-scoped gh token).
-- W6.3: README quickstart rewrite + adoption-tracker doc.
+- W3 future: `WhisperCppEngine` (Apple Silicon Metal multilingual) — deferred past v0.1.
+- W6.2: `.github/workflows/ci.yml` with arm64 macOS runner (C1+C3 on Switch) AND NVIDIA-capable runner (C2 on Cypher); self-hosted runner registration on both; uses `workflow`-scoped `nexus-durable-master` PAT.
+- W6.3: README quickstart rewrite reflecting Switch canonical C1+C3 + parakeet-mlx (not parakeet.cpp) + broadened C3 hardware-class label.
 - W6.4 / v0.1.0: tag + PyPI publish (owner-gated).
+- Plan + spec phantom-dep correction sweep: replace inline `parakeet-cpp-py` / `parakeet.cpp` body references in `Plans/2026-05-08…Implementation Plan.md` + `Specifications/2026-04-27 lattice-asr v1 - Design Spec.md` (correction notices already at top per S41; deeper body rewrite deferred to pre-v0.1.0 polish if churn-worthy).
 
 [Unreleased]: https://github.com/CodeWarrior4Life/lattice-asr/commits/main
