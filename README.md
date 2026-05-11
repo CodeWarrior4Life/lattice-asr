@@ -2,6 +2,12 @@
 
 Hardware-adaptive multilingual ASR library for the Lattice family.
 
+[![PyPI](https://img.shields.io/pypi/v/lattice-asr.svg)](https://pypi.org/project/lattice-asr/) [![License](https://img.shields.io/pypi/l/lattice-asr.svg)](https://github.com/CodeWarrior4Life/lattice-asr/blob/main/LICENSE)
+
+```bash
+pip install lattice-asr==0.1.0
+```
+
 > **Status:** v0.1 implementation in progress. W1 (foundation), W2 (Whisper + LID + Transcriber), W3.1 (`ParakeetMlxEngine`), W3.2 (`ParakeetTdtEngine`), W4 (RemoteEngine + lattice-asr-server), W5 (diarization), and W6.1 (perf-gate skeleton) are landed; W3-future (`WhisperCppEngine` for Apple Silicon multilingual) is deferred past v0.1; W6.2 (CI workflow), W6.3 (this rewrite), and v0.1.0 (tag + PyPI) are pending. All three v0.1 perf gates clear via the wrappers on canonical hosts: **C1 RTF 45.43×** on Switch (Apple M4 Pro, parakeet-mlx), **C2 RTF 115.12×** on Cypher (RTX 2070 Turing, parakeet-tdt), **C3 RTF 3.35×** on Switch (faster-whisper distil-large-v3 int8). 81 r_tier tests passing. See [CHANGELOG.md](CHANGELOG.md) for the unreleased detail and [docs/performance-baseline.md](docs/performance-baseline.md) for the canonical baselines.
 
 ## What it is

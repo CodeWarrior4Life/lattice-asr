@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - 2026-05-11
 
+**Published to PyPI:** https://pypi.org/project/lattice-asr/0.1.0/ — install with `pip install lattice-asr==0.1.0`.
+
 ### Added
 
 #### W1 — Foundation (spec §3, §4, §9, §10)
