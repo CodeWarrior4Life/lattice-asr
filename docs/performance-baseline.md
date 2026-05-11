@@ -7,11 +7,16 @@ lattice-meeting, MindPractice) depend on.
 
 ## Gates
 
-| Gate | Host class | Engine | Audio | Target RTF | Hard-fail | Measured |
-| ---- | ---------- | ------ | ----- | ---------- | --------- | -------- |
-| C1   | Apple Silicon (M-series) | `parakeet.cpp` | hello-en-30s.wav | > 10× | yes | TBD (Trinity / Cypher) |
-| C2   | NVIDIA CUDA GPU | `parakeet-tdt` (NeMo) | hello-en-30s.wav | > 50× | yes | TBD (Morpheus RTX 5080) |
-| C3   | Modern x86_64 CPU (8-core) | `faster-whisper` distil-large-v3 int8 | hello-en-30s.wav | > 2× | yes | TBD (Morpheus CPU) |
+| Gate | Host class | Engine | Audio | Target RTF | Hard-fail | Canonical host |
+| ---- | ---------- | ------ | ----- | ---------- | --------- | -------------- |
+| C1   | Apple Silicon (M-series) | `parakeet.cpp` | hello-en-30s.wav | > 10× | yes | Trinity (Apple M5 Max) |
+| C2   | NVIDIA CUDA GPU (Linux) | `parakeet-tdt` (NeMo) | hello-en-30s.wav | > 50× | yes | Cypher (RTX 2070, Ubuntu 24.04) |
+| C3   | x86_64 CPU (Linux server) | `faster-whisper` distil-large-v3 int8 | hello-en-30s.wav | > 2× | yes | Cypher (x86_64 Ubuntu 24.04) |
+
+**Canonical hosts are production servers.** Dev workstations (e.g., Morpheus
+running Windows) are useful for plumbing verification but are explicitly NOT
+baselines of record — workstation noise (browsers, IDEs, sync daemons) makes
+their RTF numbers untrustworthy for release decisions.
 
 RTF = `audio_duration_seconds / wall_clock_seconds`. A 30-second clip transcribed in
 3 seconds is 10× RTF. The 30s clip is the standardized benchmark fixture; the 2s
@@ -29,7 +34,7 @@ LATTICE_ASR_PERF_RUN=1 pytest tests/perf/ -m perf -k c1 -v
 ```
 
 Requires `parakeet-cpp-py` (the `parakeet` extra). Skip elsewhere via the
-`apple_silicon` marker. Run on Trinity (M5 Max) or Cypher.
+`apple_silicon` marker. Run on Trinity (Apple M5 Max).
 
 ### C2 — NVIDIA parakeet-tdt
 
@@ -38,7 +43,7 @@ LATTICE_ASR_PERF_RUN=1 pytest tests/perf/ -m perf -k c2 -v
 ```
 
 Requires `nemo-toolkit[asr]` (the `nvidia` extra, Linux-only). Skip elsewhere via
-the `nvidia_cuda` marker. Run on Morpheus (RTX 5080).
+the `nvidia_cuda` marker. Run on Cypher (RTX 2070, Ubuntu 24.04).
 
 ### C3 — CPU distil-large-v3 int8
 
@@ -46,8 +51,9 @@ the `nvidia_cuda` marker. Run on Morpheus (RTX 5080).
 LATTICE_ASR_PERF_RUN=1 pytest tests/perf/ -m perf -k c3 -v
 ```
 
-Requires `faster-whisper` (the `whisper` extra). Portable; runs on any modern
-8-core x86_64. Reference host: Morpheus CPU.
+Requires `faster-whisper` (the `whisper` extra). Run on Cypher (x86_64 Ubuntu
+24.04, the canonical Linux server). Workstation runs (Morpheus / dev boxes)
+are plumbing verification only, not baselines of record.
 
 ### All three (single command)
 
@@ -94,10 +100,15 @@ recent passing measurement is the baseline of record for that host.
 
 | Date | Host | Hardware | Gate | Measured RTF | Pass/Fail | Notes |
 | ---- | ---- | -------- | ---- | ------------ | --------- | ----- |
-| 2026-05-11 | Morpheus | x86_64 (Windows) CPU | C3 | 1.998 (cold) / pass (warm, ~20s wall) | plumbing-verify only | Cold run = model download concurrent; warm run passed but RTF not captured (test doesn't print). Dev box; not a baseline of record. |
 |      | Cypher | x86_64 Ubuntu 24.04, 8-core CPU | C3 | TBD | TBD | Canonical C3 host. |
-|      | Cypher | NVIDIA RTX 2070 (8 GB, CUDA 7.5) | C2 | TBD | TBD | Canonical C2 host (Morpheus RTX 5080 is Windows; `nvidia` extra is Linux-only per pyproject). |
+|      | Cypher | NVIDIA RTX 2070 (8 GB, CUDA 7.5) | C2 | TBD | TBD | Canonical C2 host. |
 |      | Trinity | Apple M5 Max (unified 128 GB) | C1 | TBD | TBD | Canonical C1 host. |
+
+**Plumbing verification (not a baseline of record):** 2026-05-11 on Morpheus
+(Windows workstation), C3 cold run measured RTF 1.998 (failed by 0.002 — concurrent
+model download); warm run passed in ~20 s wall clock. Validated fixture-load,
+marker-filter, gate-evaluation, and engine-warmup path end-to-end. Morpheus does
+not appear in canonical baselines.
 
 ## Notes
 
