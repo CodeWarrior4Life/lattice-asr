@@ -86,7 +86,10 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install CPU deps
-        run: pip install -e ".[whisper,dev]" --quiet
+        # `server` extra is required because tests/test_server.py imports
+        # fastapi.testclient at module load — without it, collection errors
+        # before any markers can deselect the file.
+        run: pip install -e ".[whisper,server,dev]" --quiet
 
       - name: pytest r_tier (mock-only, with coverage)
         run: |
