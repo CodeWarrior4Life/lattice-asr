@@ -1,10 +1,10 @@
 import pytest
+
 from lattice_asr import (
+    EngineCapabilities,
     Segment,
     SpeakerSegment,
     TranscriptionResult,
-    EngineCapabilities,
-    AsrCallRecord,
 )
 from lattice_asr.engines import TranscriptionEngine
 

@@ -1,6 +1,8 @@
 from unittest.mock import patch
+
 import pytest
-from lattice_asr.hardware import detect_hardware, HardwareProfile
+
+from lattice_asr.hardware import detect_hardware
 
 
 @pytest.mark.r_tier
@@ -99,9 +101,9 @@ def test_unknown_os_warns_and_defaults_to_linux():
         patch("lattice_asr.hardware._has_cuda", return_value=False),
         patch("lattice_asr.hardware._total_ram_gb", return_value=8.0),
         patch("lattice_asr.hardware._cpu_cores", return_value=4),
+        pytest.warns(RuntimeWarning, match="Unrecognized OS"),
     ):
-        with pytest.warns(RuntimeWarning, match="Unrecognized OS"):
-            hw = detect_hardware()
+        hw = detect_hardware()
     assert hw.os == "linux"
 
 
@@ -113,7 +115,7 @@ def test_unknown_arch_warns_and_defaults_to_x86_64():
         patch("lattice_asr.hardware._has_cuda", return_value=False),
         patch("lattice_asr.hardware._total_ram_gb", return_value=8.0),
         patch("lattice_asr.hardware._cpu_cores", return_value=4),
+        pytest.warns(RuntimeWarning, match="Unrecognized CPU arch"),
     ):
-        with pytest.warns(RuntimeWarning, match="Unrecognized CPU arch"):
-            hw = detect_hardware()
+        hw = detect_hardware()
     assert hw.cpu_arch == "x86_64"

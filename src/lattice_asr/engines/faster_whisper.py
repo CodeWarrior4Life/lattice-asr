@@ -8,10 +8,13 @@ import math
 import time
 import wave
 from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 from lattice_asr.engines.base import TranscriptionEngine
 from lattice_asr.types import EngineCapabilities, Segment, TranscriptionResult
 
+if TYPE_CHECKING:
+    from faster_whisper import WhisperModel  # type: ignore[import-untyped]
 
 # Spec §6.3: capabilities.languages = frozenset(WHISPER_SUPPORTED_LANGUAGES) (99 languages).
 # Dynamic import so the frozenset reflects faster-whisper's actual tokenizer list rather than
@@ -19,7 +22,9 @@ from lattice_asr.types import EngineCapabilities, Segment, TranscriptionResult
 # NOTE: importing faster_whisper.tokenizer eagerly loads ctranslate2 (~238ms cold).
 # WhisperModel itself remains lazy (loaded inside _ensure_model on first call).
 try:
-    from faster_whisper.tokenizer import _LANGUAGE_CODES as _FW_LANG_CODES  # type: ignore[import-untyped]
+    from faster_whisper.tokenizer import (
+        _LANGUAGE_CODES as _FW_LANG_CODES,  # type: ignore[import-untyped]
+    )
 
     _WHISPER_LANGS: frozenset[str] = frozenset(_FW_LANG_CODES)
 except (ImportError, AttributeError):
@@ -124,7 +129,7 @@ class FasterWhisperEngine(TranscriptionEngine):
         self._device = device
         self._compute_type = compute_type
         self._beam_size = beam_size
-        self._model: "WhisperModel | None" = None  # lazy-loaded
+        self._model: WhisperModel | None = None  # lazy-loaded
         self.capabilities = EngineCapabilities(
             name="faster-whisper",
             languages=_WHISPER_LANGS,
@@ -137,7 +142,7 @@ class FasterWhisperEngine(TranscriptionEngine):
     async def warmup(self) -> None:
         await asyncio.to_thread(self._ensure_model)
 
-    def _ensure_model(self) -> "WhisperModel":
+    def _ensure_model(self) -> WhisperModel:
         if self._model is None:
             from faster_whisper import WhisperModel  # type: ignore[import-untyped]
 
@@ -211,7 +216,10 @@ class FasterWhisperEngine(TranscriptionEngine):
         sample_rate: int,
         language: str | None,
     ) -> AsyncIterator[TranscriptionResult]:
-        """Transcribe a streaming audio source. Requires sample_rate=16000. Yields one result per buffered window."""
+        """Transcribe a streaming audio source.
+
+        Requires sample_rate=16000. Yields one result per buffered window.
+        """
         if sample_rate != 16000:
             raise ValueError(f"FasterWhisperEngine requires sample_rate=16000, got {sample_rate}")
         buf = bytearray()

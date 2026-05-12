@@ -96,7 +96,11 @@ class Transcriber:
         force_engine: str | None = None,
         enable_diarization: bool = False,
     ):
-        """Construct hardware-adaptive Transcriber; loads diarizer adapter per config when enable_diarization=True (pyannote default, sortformer via config.diarization.adapter='sortformer')."""
+        """Construct hardware-adaptive Transcriber.
+
+        When `enable_diarization=True`, loads the diarizer adapter named by
+        `config.diarization.adapter` (defaults to 'pyannote'; 'sortformer' also supported).
+        """
         self._default_language = default_language
         self._config = config or LatticeAsrConfig()
         self._telemetry = telemetry_sink or NullTelemetrySink()
@@ -126,12 +130,12 @@ class Transcriber:
 
     @property
     def hardware(self) -> HardwareProfile:
-        """Detected `HardwareProfile` (OS, arch, accelerator, RAM/cores) used for engine selection."""
+        """Detected `HardwareProfile` (OS, arch, accelerator, RAM/cores) for engine selection."""
         return self._hardware
 
     @property
     def loaded_engines(self) -> dict[str, TranscriptionEngine]:
-        """Map of language route ("en"/"multi") to engine; values may be the same instance on CPU."""
+        """Map language route ("en"/"multi") -> engine; values may share an instance on CPU."""
         return dict(self._engines)
 
     async def warmup(self) -> None:
@@ -149,7 +153,11 @@ class Transcriber:
         diarize: bool = False,
         tenant_id: str | None = None,
     ) -> TranscriptionResult:
-        """Transcribe PCM audio; routes via LID-or-explicit (spec §8.2), records telemetry; raises ValueError if diarize=True without enable_diarization=True."""
+        """Transcribe PCM audio.
+
+        Routes via LID-or-explicit (spec §8.2) and records telemetry. Raises ValueError
+        if `diarize=True` was passed without `enable_diarization=True` at construction.
+        """
         if diarize and not self._enable_diarization:
             raise ValueError("diarize=True requires enable_diarization=True at __init__")
 
@@ -203,7 +211,12 @@ class Transcriber:
         diarize: bool = False,
         tenant_id: str | None = None,
     ) -> AsyncIterator[TranscriptionResult]:
-        """Stream partial transcriptions; no per-chunk LID (deferred), one telemetry record per partial; same diarize-gate as transcribe (deferred-raise on first iteration since async generator)."""
+        """Stream partial transcriptions.
+
+        No per-chunk LID (deferred); one telemetry record per partial. Same diarize gate
+        as transcribe(), but the ValueError is deferred to the first iteration because
+        this is an async generator.
+        """
         if diarize and not self._enable_diarization:
             raise ValueError("diarize=True requires enable_diarization=True at __init__")
         # For v0.1, route by static language hint; LID per-chunk is deferred

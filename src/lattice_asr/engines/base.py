@@ -31,5 +31,5 @@ class TranscriptionEngine(ABC):
         if False:  # makes this an async generator (subtype of AsyncIterator)
             yield  # type: ignore[unreachable]  # pragma: no cover
 
-    async def warmup(self) -> None:
+    async def warmup(self) -> None:  # noqa: B027 - optional override; default no-op intentional
         pass

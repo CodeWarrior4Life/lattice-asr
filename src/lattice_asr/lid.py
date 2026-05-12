@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 # Spec §8 latency contract: Silero LID is bounded to the first 1.5s of audio
 # so detect() latency is ≤50ms regardless of caller input length.
@@ -26,7 +26,7 @@ class SileroLid:
     """
 
     def __init__(self) -> None:
-        self._model: Optional[Any] = None
+        self._model: Any | None = None
 
     async def warmup(self) -> None:
         await asyncio.to_thread(self._ensure_model)

@@ -3,7 +3,6 @@ from urllib.request import urlretrieve
 
 import pytest
 
-
 # SHA256 verification can be added here when CI fixture integrity matters.
 _FIXTURES = {
     "hello-en-2s.wav": "https://huggingface.co/datasets/CodeWarrior4Life/lattice-asr-fixtures/resolve/main/hello-en-2s.wav",

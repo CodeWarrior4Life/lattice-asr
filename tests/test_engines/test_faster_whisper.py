@@ -1,4 +1,5 @@
 import pytest
+
 from lattice_asr.engines.faster_whisper import FasterWhisperEngine
 
 
@@ -34,7 +35,8 @@ async def test_transcribe_auto_language(hello_en_2s_wav):
     assert result.language == "en"
 
 
-@pytest.mark.s_tier  # AUTHORIZED DEVIATION — warmup() loads ~600 MB model, violates r_tier FAST contract
+# AUTHORIZED DEVIATION — warmup() loads ~600 MB model, violates r_tier FAST contract
+@pytest.mark.s_tier
 @pytest.mark.asyncio
 async def test_warmup_does_not_raise():
     eng = FasterWhisperEngine(model="distil-large-v3", device="cpu", compute_type="int8")

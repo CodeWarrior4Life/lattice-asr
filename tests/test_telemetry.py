@@ -1,7 +1,9 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 import pytest
-from lattice_asr.telemetry import NullTelemetrySink, ListTelemetrySink
+
 from lattice_asr import AsrCallRecord
+from lattice_asr.telemetry import ListTelemetrySink, NullTelemetrySink
 
 
 def _record(engine="test"):
@@ -14,7 +16,7 @@ def _record(engine="test"):
         diarized=False,
         speaker_count=None,
         tenant_id=None,
-        timestamp_utc=datetime.now(timezone.utc),
+        timestamp_utc=datetime.now(UTC),
     )
 
 

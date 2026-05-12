@@ -1,6 +1,8 @@
 from pathlib import Path
+
 import pytest
-from lattice_asr.config import LatticeAsrConfig, load_config, default_model_cache_dir
+
+from lattice_asr.config import default_model_cache_dir, load_config
 
 
 @pytest.mark.r_tier
@@ -67,5 +69,5 @@ def test_default_model_cache_dir_windows(monkeypatch, tmp_path):
 def test_load_config_invalid_yaml_raises(tmp_path):
     p = tmp_path / "bad.yaml"
     p.write_text("default_language: [\n")  # malformed
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017 - YAML loader exception type varies by version
         load_config(p)

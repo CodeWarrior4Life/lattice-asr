@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import time
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 import httpx
 
@@ -16,7 +16,6 @@ from lattice_asr.types import (
     SpeakerSegment,
     TranscriptionResult,
 )
-
 
 _API_VERSION = "v1"
 _RETRIES = 3
@@ -93,7 +92,8 @@ class RemoteEngine(TranscriptionEngine):
                 api_version = resp.headers.get("X-Lattice-Asr-Api-Version", _API_VERSION)
                 if api_version != _API_VERSION:
                     raise RemoteEngineError(
-                        f"wire-protocol version mismatch: client={_API_VERSION} server={api_version}"
+                        "wire-protocol version mismatch: "
+                        f"client={_API_VERSION} server={api_version}"
                     )
                 data = resp.json()
                 segs = tuple(Segment(**s) for s in data.get("segments", []))

@@ -253,11 +253,13 @@ async def test_lid_confidence_at_threshold_routes_to_detected(cpu_only_hw):
             duration_ms=50,
         )
         lid_result = LidResult(language="es", confidence=threshold)
-        with patch.object(t._lid, "detect", new=AsyncMock(return_value=lid_result)):
-            with patch.object(
+        with (
+            patch.object(t._lid, "detect", new=AsyncMock(return_value=lid_result)),
+            patch.object(
                 t._engines["multi"], "transcribe", new=AsyncMock(return_value=fake_result)
-            ):
-                r = await t.transcribe(b"\x00\x00")
+            ),
+        ):
+            r = await t.transcribe(b"\x00\x00")
     assert r.text == "hola"
     assert sink.records[0].language_detected == "es"
 
@@ -289,7 +291,7 @@ async def test_transcribe_empty_audio_passes_through(cpu_only_hw):
 @pytest.mark.r_tier
 @pytest.mark.asyncio
 async def test_transcribe_unknown_language_routes_to_multi(cpu_only_hw):
-    """Unknown language code (e.g., 'zz') is not validated; routes via the en-vs-multi binary to multi."""
+    """Unknown language codes (e.g. 'zz') route via en-vs-multi binary to multi (unvalidated)."""
     sink = ListTelemetrySink()
     with patch("lattice_asr.transcriber.detect_hardware", return_value=cpu_only_hw):
         t = Transcriber(telemetry_sink=sink)
@@ -318,9 +320,11 @@ async def test_transcribe_engine_raises_propagates_and_skips_telemetry(cpu_only_
     sink = ListTelemetrySink()
     with patch("lattice_asr.transcriber.detect_hardware", return_value=cpu_only_hw):
         t = Transcriber(telemetry_sink=sink)
-        with patch.object(t._engines["en"], "transcribe", side_effect=RuntimeError("boom")):
-            with pytest.raises(RuntimeError, match="boom"):
-                await t.transcribe(b"\x00\x00", language="en")
+        with (
+            patch.object(t._engines["en"], "transcribe", side_effect=RuntimeError("boom")),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            await t.transcribe(b"\x00\x00", language="en")
     assert len(sink.records) == 0
 
 
@@ -336,7 +340,7 @@ def test_enable_diarization_pyannote_default_loads_adapter(cpu_only_hw):
 
 @pytest.mark.r_tier
 def test_enable_diarization_sortformer_override_loads_adapter(cpu_only_hw):
-    """With diarization.adapter='sortformer' config override, enable_diarization=True loads NvidiaSortformerAdapter."""
+    """diarization.adapter='sortformer' + enable_diarization=True loads NvidiaSortformerAdapter."""
     from lattice_asr.config import DiarizationConfig, LatticeAsrConfig
     from lattice_asr.diarize.sortformer import NvidiaSortformerAdapter
 
@@ -352,6 +356,8 @@ def test_enable_diarization_unknown_adapter_raises_valueerror(cpu_only_hw):
     from lattice_asr.config import DiarizationConfig, LatticeAsrConfig
 
     cfg = LatticeAsrConfig(diarization=DiarizationConfig(adapter="bogus"))
-    with patch("lattice_asr.transcriber.detect_hardware", return_value=cpu_only_hw):
-        with pytest.raises(ValueError, match="bogus"):
-            Transcriber(config=cfg, enable_diarization=True)
+    with (
+        patch("lattice_asr.transcriber.detect_hardware", return_value=cpu_only_hw),
+        pytest.raises(ValueError, match="bogus"),
+    ):
+        Transcriber(config=cfg, enable_diarization=True)

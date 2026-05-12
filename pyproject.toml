@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lattice-asr"
-version = "0.1.0"
+version = "0.1.1.dev0"
 description = "Hardware-adaptive multilingual ASR library for the Lattice family. Pluggable engines (Parakeet, Whisper, Distil-Whisper), optional diarization, streaming."
 readme = "README.md"
 requires-python = ">=3.11"

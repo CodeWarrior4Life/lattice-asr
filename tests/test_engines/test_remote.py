@@ -1,7 +1,9 @@
 import base64
 import json
-import pytest
+
 import httpx
+import pytest
+
 from lattice_asr.engines.remote import RemoteEngine, RemoteEngineError
 
 

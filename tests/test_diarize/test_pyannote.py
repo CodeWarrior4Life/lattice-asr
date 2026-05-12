@@ -1,4 +1,5 @@
 import pytest
+
 from lattice_asr.diarize import Diarizer
 from lattice_asr.diarize.pyannote import PyAnnoteAdapter
 
