@@ -43,10 +43,14 @@ whisper = ["faster-whisper>=1.0"]
 parakeet = ["parakeet-mlx>=0.5; sys_platform == 'darwin' and platform_machine == 'arm64'"]
 nvidia = ["nemo-toolkit[asr]>=2.0; sys_platform == 'linux'"]
 diarize = ["pyannote.audio>=3.1"]
+# Text-based language-id, used only to label a transcript an engine could not
+# label itself (see lattice_asr/textlid.py). Pure Python, no model download.
+textlid = ["langdetect>=1.0.9"]
 remote = ["fastapi>=0.110", "uvicorn[standard]>=0.27"]
 server = ["fastapi>=0.110", "uvicorn[standard]>=0.27", "pydantic>=2.0"]
-all = ["lattice-asr[whisper,parakeet,nvidia,diarize,remote,server]"]
+all = ["lattice-asr[whisper,parakeet,nvidia,diarize,remote,server,textlid]"]
 dev = [
+  "langdetect>=1.0.9",
   "pytest>=8.0",
   "pytest-asyncio>=0.23",
   "pytest-cov>=4.0",

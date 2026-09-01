@@ -289,3 +289,117 @@ def test_base_detect_language_default_is_none_not_a_guess():
     import asyncio as _a
 
     assert _a.run(TranscriptionEngine.detect_language(e, b"", 16000)) is None
+
+
+# --------------------------------------------------------------------------
+# text LID -- labelling a transcript the engine could not label itself
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.r_tier
+def test_text_lid_identifies_the_recovered_spanish():
+    """The real transcript the fix recovers must be identifiable as Spanish.
+
+    Parakeet transcribes this correctly but cannot say in what language, which
+    left 480 words of unmistakable Spanish stamped `und`.
+    """
+    from lattice_asr.textlid import detect_language_from_text
+
+    es = (
+        "su familia y tenga la capacidad financiera para eso habría que estas "
+        "hablando conmigo un un gringo aquí que que no he hablado en español en casi "
+        "tres meses explícame más suave por favor una cosa para los países que estás "
+        "enfocando y como me estás diciendo que hay que estructurar todo"
+    )
+    r = detect_language_from_text(es)
+    assert r is not None
+    assert r.language == "es"
+    assert r.confidence > 0.9
+
+
+@pytest.mark.r_tier
+def test_text_lid_declines_on_short_text_instead_of_guessing():
+    """A three-word PTT dictation must get NO language, not a coin flip."""
+    from lattice_asr.textlid import detect_language_from_text
+
+    assert detect_language_from_text("open the file") is None
+    assert detect_language_from_text("") is None
+    assert detect_language_from_text("   ") is None
+
+
+@pytest.mark.r_tier
+def test_text_lid_is_deterministic():
+    """langdetect randomises per-process unless seeded; the same transcript must
+    not report different languages across runs."""
+    from lattice_asr.textlid import detect_language_from_text
+
+    text = (
+        "mira generalmente lo que hago yo es leer el proyecto que me envía mi amigo "
+        "lo principal es que ya tenga todos los permisos de construcción"
+    )
+    results = {detect_language_from_text(text).language for _ in range(5)}  # type: ignore[union-attr]
+    assert results == {"es"}
+
+
+@pytest.mark.r_tier
+@pytest.mark.asyncio
+async def test_undetermined_engine_result_is_labelled_from_the_transcript():
+    """End of the chain: Parakeet's `und` becomes `es`, labelled as text-derived."""
+    spanish = (
+        "no podemos ofrecerselas a cualquier persona porque pues estamos perdiendo "
+        "tiempo entonces no sé si ellos están ofreciendo algo más también más bajo"
+    )
+
+    class _AutoDetectEngine(_FakeEngine):
+        async def transcribe(self, audio_pcm, sample_rate, language):
+            # exactly what ParakeetTdtEngine now returns: text, but no language
+            return TranscriptionResult(
+                text=spanish,
+                language=UNDETERMINED,
+                confidence=0.0,
+                engine_name="parakeet-tdt",
+            )
+
+    e = type("_Auto", (_AutoDetectEngine,), {"_AVAILABLE": True})("parakeet", {"en", "es"})
+    sink = ListTelemetrySink()
+    t = _transcriber({"en": e, "multi": e}, telemetry_sink=sink)
+    t._detector = None
+
+    result = await t.transcribe(b"\x00" * 3200, 16000, language=None)
+
+    assert result.language == "es"
+    assert result.confidence > 0.9
+    assert result.language_source == "transcript-text", "provenance must be labelled"
+    assert "inferred from the TRANSCRIPT TEXT" in result.language_warning
+    assert sink.records[0].language_source == "transcript-text"
+    assert sink.records[0].language_detected == "es"
+
+
+@pytest.mark.r_tier
+@pytest.mark.asyncio
+async def test_pinned_language_is_labelled_requested_and_never_text_guessed():
+    """An explicit request is authoritative; nothing may second-guess it."""
+    e = _fake("whisper", {"en", "es"})
+    t = _transcriber({"en": e, "multi": e})
+    result = await t.transcribe(b"\x00" * 3200, 16000, language="en")
+    assert result.language == "en"
+    assert result.language_source == "requested"
+
+
+@pytest.mark.r_tier
+def test_text_lid_absent_yields_none_not_a_guess(monkeypatch):
+    """Without the optional extra the language stays undetermined."""
+    import builtins
+
+    import lattice_asr.textlid as tl
+
+    real_import = builtins.__import__
+
+    def _no_langdetect(name, *a, **kw):
+        if name == "langdetect":
+            raise ImportError("not installed")
+        return real_import(name, *a, **kw)
+
+    monkeypatch.setattr(builtins, "__import__", _no_langdetect)
+    long_text = "esto es una frase suficientemente larga para superar el umbral de caracteres"
+    assert tl.detect_language_from_text(long_text) is None

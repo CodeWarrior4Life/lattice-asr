@@ -50,6 +50,16 @@ class TranscriptionResult:
     # decision looked exactly like a reliable one. A consumer surfacing a
     # transcript should surface this alongside it.
     language_warning: str | None = None
+    #: WHERE `language` came from, because the grades are not equivalent:
+    #:   "requested"       -- the caller pinned it; no detection happened
+    #:   "engine"          -- the engine reported its own detection
+    #:   "audio-lid"       -- a detector identified it from the AUDIO
+    #:   "transcript-text" -- inferred from the TEXT the engine produced; weaker,
+    #:                        since it describes what was written, not what was
+    #:                        spoken, and those diverge exactly when the engine
+    #:                        mistranslates
+    #:   "undetermined"    -- genuinely unknown; `language` is "und"
+    language_source: str = "engine"
 
 
 @dataclass(frozen=True)
@@ -69,6 +79,7 @@ class AsrCallRecord:
     # on silent-fallback rates instead of waiting for someone to read a bad
     # transcript in a language they happen to speak.
     language_warning: str | None = None
+    language_source: str = "engine"
 
 
 class TelemetrySink(Protocol):

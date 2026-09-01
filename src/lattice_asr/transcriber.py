@@ -135,6 +135,59 @@ class Transcriber:
             else:
                 raise ValueError(f"unknown diarization.adapter: {self._config.diarization.adapter}")
 
+    def _stamp_language_provenance(
+        self,
+        result: TranscriptionResult,
+        requested: str | None,
+        detection: LidResult | None,
+        warning: str | None,
+    ) -> TranscriptionResult:
+        """Record what the language is AND how we know, filling gaps last-resort.
+
+        Order of authority: an explicit request, then the engine's own report,
+        then an audio detector, then -- only if all of those came up empty -- the
+        language of the transcribed text. Text LID is last because it describes
+        what the engine WROTE rather than what was SPOKEN.
+        """
+        from dataclasses import replace as _replace
+
+        language = result.language
+        confidence = result.confidence
+        warnings = [warning] if warning else []
+
+        if requested is not None:
+            source = "requested"
+        elif language and language != UNDETERMINED:
+            source = "engine"
+        elif detection is not None and detection.is_determined:
+            language, confidence, source = detection.language, detection.confidence, "audio-lid"
+        else:
+            source = "undetermined"
+
+        # Last resort: the engine transcribed successfully but cannot say in what
+        # language (Parakeet TDT). Better a labelled text-derived answer than a
+        # transcript of obvious Spanish stamped "und".
+        if source == "undetermined" and result.text:
+            from lattice_asr.textlid import detect_language_from_text
+
+            text_result = detect_language_from_text(result.text)
+            if text_result is not None:
+                language, confidence = text_result.language, text_result.confidence
+                source = "transcript-text"
+                warnings.append(
+                    f"language {language!r} was inferred from the TRANSCRIPT TEXT "
+                    f"(confidence {confidence:.4f}), not from the audio: no loaded "
+                    f"engine can report a language"
+                )
+
+        return _replace(
+            result,
+            language=language or UNDETERMINED,
+            confidence=confidence,
+            language_source=source,
+            language_warning=("; ".join(warnings) if warnings else result.language_warning),
+        )
+
     def _pick_detector(self) -> TranscriptionEngine | None:
         """Choose which loaded engine performs language identification.
 
@@ -319,13 +372,7 @@ class Transcriber:
         engine = self._select_engine(language)
         result = await engine.transcribe(audio_pcm, sample_rate, language)
 
-        # Stamp the warning onto the transcript itself. A caller that only ever
-        # touches the result object still cannot miss that the language was a
-        # guess -- which is the acceptance criterion this whole change exists for.
-        if warning is not None and result.language_warning is None:
-            from dataclasses import replace as _replace
-
-            result = _replace(result, language_warning=warning)
+        result = self._stamp_language_provenance(result, requested, detection, warning)
 
         speaker_count: int | None = None
         if diarize and self._diarizer is not None:
@@ -349,8 +396,19 @@ class Transcriber:
                 speaker_count=speaker_count,
                 tenant_id=tenant_id,
                 timestamp_utc=datetime.now(UTC),
-                language_confidence=(detection.confidence if detection is not None else None),
-                language_warning=warning,
+                # Confidence in the LANGUAGE decision specifically -- the
+                # detector's number when one ran, the text-LID number when that
+                # was the fallback, and None when nobody measured the language
+                # (a pinned request, or an engine that reports none).
+                language_confidence=(
+                    detection.confidence
+                    if detection is not None
+                    else (
+                        result.confidence if result.language_source == "transcript-text" else None
+                    )
+                ),
+                language_warning=result.language_warning,
+                language_source=result.language_source,
             )
         )
         return result
