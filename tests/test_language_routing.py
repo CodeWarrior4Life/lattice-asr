@@ -403,3 +403,144 @@ def test_text_lid_absent_yields_none_not_a_guess(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", _no_langdetect)
     long_text = "esto es una frase suficientemente larga para superar el umbral de caracteres"
     assert tl.detect_language_from_text(long_text) is None
+
+
+# --------------------------------------------------------------------------
+# a checkpoint's NAME is capability; the tokenizer's language list is not
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.r_tier
+def test_distil_models_declare_english_only():
+    """distil-large-v3 was the default on EVERY route while declaring 99 languages.
+
+    MEASURED 2026-09-01 on 30s of Spanish: it reports en@0.9463 and translates
+    rather than transcribes. Declaring the tokenizer's list as capability is what
+    let the multilingual route be served by an English-only model.
+    """
+    from lattice_asr.engines.faster_whisper import FasterWhisperEngine
+
+    for name in ("distil-large-v3", "distil-small.en", "distil-whisper/distil-large-v3"):
+        caps = FasterWhisperEngine(model=name).capabilities
+        assert caps.languages == frozenset({"en"}), name
+
+
+@pytest.mark.r_tier
+def test_dot_en_models_declare_english_only():
+    from lattice_asr.engines.faster_whisper import FasterWhisperEngine
+
+    for name in ("medium.en", "base.en", "tiny.en"):
+        assert FasterWhisperEngine(model=name).capabilities.languages == frozenset({"en"}), name
+
+
+@pytest.mark.r_tier
+def test_real_whisper_models_declare_multilingual():
+    from lattice_asr.engines.faster_whisper import FasterWhisperEngine
+
+    for name in ("large-v3", "medium", "small"):
+        langs = FasterWhisperEngine(model=name).capabilities.languages
+        assert "es" in langs and "ja" in langs and len(langs) > 50, name
+
+
+@pytest.mark.r_tier
+def test_explicit_languages_override_the_name_heuristic():
+    """A checkpoint the name heuristic misjudges must be declarable."""
+    from lattice_asr.engines.faster_whisper import FasterWhisperEngine
+
+    e = FasterWhisperEngine(
+        model="distil-some-multilingual-fork", languages=frozenset({"en", "es"})
+    )
+    assert e.capabilities.languages == frozenset({"en", "es"})
+
+
+@pytest.mark.r_tier
+def test_multilingual_route_is_never_an_english_only_model():
+    """THE regression guard for the second layer of this defect.
+
+    Whatever hardware profile is detected, the engine that non-English audio lands
+    on must actually declare non-English support.
+    """
+    from lattice_asr.hardware import HardwareProfile
+    from lattice_asr.transcriber import _build_engine_registry
+
+    profiles = [
+        HardwareProfile(
+            os="linux",
+            cpu_arch="x86_64",
+            apple_silicon=False,
+            nvidia_cuda=True,
+            cuda_capability=(8, 6),
+            total_ram_gb=32.0,
+            cpu_cores=16,
+        ),
+        HardwareProfile(
+            os="linux",
+            cpu_arch="x86_64",
+            apple_silicon=False,
+            nvidia_cuda=False,
+            cuda_capability=None,
+            total_ram_gb=16.0,
+            cpu_cores=8,
+        ),
+    ]
+    for hw in profiles:
+        registry = _build_engine_registry(hw, None)
+        multi = registry["multi"]
+        assert multi.capabilities.languages != frozenset({"en"}), (
+            f"multilingual route on {hw.os}/cuda={hw.nvidia_cuda} is an English-only "
+            f"engine ({multi.capabilities.name}); non-English audio would be translated"
+        )
+        assert "es" in multi.capabilities.languages
+
+
+@pytest.mark.r_tier
+def test_forced_faster_whisper_is_multilingual():
+    from lattice_asr.hardware import HardwareProfile
+    from lattice_asr.transcriber import _build_engine_registry
+
+    hw = HardwareProfile(
+        os="linux",
+        cpu_arch="x86_64",
+        apple_silicon=False,
+        nvidia_cuda=False,
+        cuda_capability=None,
+        total_ram_gb=16.0,
+        cpu_cores=8,
+    )
+    registry = _build_engine_registry(hw, "faster-whisper")
+    assert "es" in registry["multi"].capabilities.languages
+
+
+@pytest.mark.r_tier
+@pytest.mark.asyncio
+async def test_audio_detected_language_is_credited_to_the_detector_not_the_engine():
+    """A detected language passed to an engine comes back echoed; do not relabel it.
+
+    MEASURED regression: a real Spanish dictation reported
+    `language=es, language_source=engine` when the AUDIO DETECTOR had found it and
+    the engine merely echoed the argument. That laundered an audio-LID finding as
+    the engine's own and discarded the detector's confidence with it.
+    """
+
+    class _Echo(_FakeEngine):
+        async def transcribe(self, audio_pcm, sample_rate, language):
+            return TranscriptionResult(
+                text="hola que tal amigo",
+                language=language or UNDETERMINED,  # engines echo the argument
+                confidence=0.0,
+                engine_name="parakeet-tdt",
+            )
+
+    e = type("_E", (_Echo,), {"_AVAILABLE": True})("parakeet", {"en", "es"})
+    sink = ListTelemetrySink()
+    t = _transcriber({"en": e, "multi": e}, telemetry_sink=sink)
+    t._detector = e
+    with patch.object(e, "detect_language", new=AsyncMock(return_value=LidResult("es", 0.9468))):
+        result = await t.transcribe(b"\x00" * 3200, 16000, language=None)
+
+    assert result.language == "es"
+    assert result.language_source == "audio-lid", (
+        "an audio detection must not be credited to the engine"
+    )
+    assert result.confidence == pytest.approx(0.9468)
+    assert sink.records[0].language_confidence == pytest.approx(0.9468)

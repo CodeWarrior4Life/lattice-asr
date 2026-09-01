@@ -23,18 +23,33 @@ from lattice_asr.types import (
 logger = logging.getLogger(__name__)
 
 
+# The multilingual route's model, per device class. NOT distil-large-v3, which is
+# English-only and was the previous default on every route: MEASURED 2026-09-01 it
+# reports en@0.9463 on Spanish audio and translates instead of transcribing.
+# large-v3 on GPU (best multilingual quality, and the only option here that covers
+# ja/zh/ar properly); medium on CPU, where large-v3 int8 is impractically slow and
+# medium already measured es@0.9468.
+MULTILINGUAL_MODEL_CUDA = "large-v3"
+MULTILINGUAL_MODEL_CPU = "medium"
+
+
 def _build_engine_registry(
     hw: HardwareProfile, force: str | None
 ) -> dict[str, TranscriptionEngine]:
     """Build {language_route: engine}. Spec §5.
 
-    Routes: "en" (English-optimized) and "multi" (multilingual fallback).
+    Routes: "en" (English-optimized) and "multi" (multilingual fallback). The keys
+    are historical: selection is by each engine's declared `capabilities.languages`
+    and availability, not by these names (see `_select_engine`).
+
     Lazy-imports per-platform engines to avoid pulling heavy deps unless needed.
     """
     if force:
         if force == "faster-whisper":
+            # Multilingual model even when forced: a caller asking for
+            # "faster-whisper" wants Whisper, not an English-only distillation of it.
             engine = FasterWhisperEngine(
-                model="distil-large-v3",
+                model=MULTILINGUAL_MODEL_CUDA if hw.nvidia_cuda else MULTILINGUAL_MODEL_CPU,
                 device="cuda" if hw.nvidia_cuda else "cpu",
                 compute_type="float16" if hw.nvidia_cuda else "int8",
             )
@@ -79,12 +94,18 @@ def _build_engine_registry(
         return {
             "en": ParakeetTdtEngine(),
             "multi": FasterWhisperEngine(
-                model="distil-large-v3", device="cuda", compute_type="float16"
+                model=MULTILINGUAL_MODEL_CUDA, device="cuda", compute_type="float16"
             ),
         }
 
-    cpu_engine = FasterWhisperEngine(model="distil-large-v3", device="cpu", compute_type="int8")
-    return {"en": cpu_engine, "multi": cpu_engine}
+    # Two engines, not one shared instance: distil-large-v3 is fast and English-only,
+    # so it can serve "en" but must not be what non-English audio lands on.
+    return {
+        "en": FasterWhisperEngine(model="distil-large-v3", device="cpu", compute_type="int8"),
+        "multi": FasterWhisperEngine(
+            model=MULTILINGUAL_MODEL_CPU, device="cpu", compute_type="int8"
+        ),
+    }
 
 
 class Transcriber:
@@ -157,10 +178,16 @@ class Transcriber:
 
         if requested is not None:
             source = "requested"
+        elif detection is not None and detection.is_determined:
+            # Detection is checked BEFORE the engine's own report on purpose. When a
+            # detector determines the language we PASS it to the engine, and engines
+            # echo it back -- so crediting "engine" here would launder an audio-LID
+            # result as the engine's own finding and lose the confidence with it.
+            language = detection.language
+            confidence = detection.confidence
+            source = "audio-lid"
         elif language and language != UNDETERMINED:
             source = "engine"
-        elif detection is not None and detection.is_determined:
-            language, confidence, source = detection.language, detection.confidence, "audio-lid"
         else:
             source = "undetermined"
 

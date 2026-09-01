@@ -8,7 +8,7 @@ import math
 import time
 import wave
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from lattice_asr.engines.base import LANGUAGE_DETECT_SECONDS, TranscriptionEngine
 from lattice_asr.lid import LidResult
@@ -17,9 +17,19 @@ from lattice_asr.types import EngineCapabilities, Segment, TranscriptionResult
 if TYPE_CHECKING:
     from faster_whisper import WhisperModel  # type: ignore[import-untyped]
 
-# Spec §6.3: capabilities.languages = frozenset(WHISPER_SUPPORTED_LANGUAGES) (99 languages).
-# Dynamic import so the frozenset reflects faster-whisper's actual tokenizer list rather than
-# a hand-curated subset (the static fallback below is a conservative approximation only).
+# The tokenizer's language list is the CEILING of what a Whisper checkpoint can emit -- it is NOT
+# what any given checkpoint was trained to do. Reading it as capability is the bug this comment
+# replaces: every route defaulted to `distil-large-v3`, an ENGLISH-ONLY distilled model, while
+# declaring all 99 tokenizer languages. MEASURED 2026-09-01 on 30s of Spanish (link, CUDA):
+#
+#     distil-large-v3 -> detect en@0.9463, and TRANSLATES: "family and have the capacity
+#                        financial for that... A gringo here that I've been in Spanish"
+#     large-v3        -> detect es@0.8779, transcribes Spanish correctly
+#     medium          -> detect es@0.9468, transcribes Spanish correctly
+#
+# So the multilingual route was served by a model that confidently reports English for everything
+# and translates rather than transcribes -- the exact defect, one layer down, and it survived the
+# first pass of this fix. See ENGLISH_ONLY_MODEL_MARKERS below.
 # NOTE: importing faster_whisper.tokenizer eagerly loads ctranslate2 (~238ms cold).
 # WhisperModel itself remains lazy (loaded inside _ensure_model on first call).
 try:
@@ -115,6 +125,24 @@ except (ImportError, AttributeError):
     )
 
 
+# A checkpoint is English-only if its NAME says so. Both families are English-only by
+# construction, not by configuration:
+#   ".en" suffix  -- OpenAI's tiny.en / base.en / small.en / medium.en
+#   "distil-"     -- Distil-Whisper's distilled checkpoints (distil-large-v3, distil-small.en, ...)
+# Name-based because the checkpoint does not advertise its training coverage anywhere readable, and
+# guessing WIDE is the dangerous direction: an over-declared engine gets handed audio it will
+# silently mistranslate. Pass `languages=` explicitly for a checkpoint this misjudges.
+ENGLISH_ONLY_MODEL_MARKERS = ("distil-",)
+
+
+def _languages_for_model(model: str) -> frozenset[str]:
+    """Declared language coverage for a checkpoint name. Narrow when unsure."""
+    name = model.rsplit("/", 1)[-1].lower()
+    if name.endswith(".en") or any(m in name for m in ENGLISH_ONLY_MODEL_MARKERS):
+        return frozenset({"en"})
+    return _WHISPER_LANGS
+
+
 class FasterWhisperEngine(TranscriptionEngine):
     """Adapter for SYSTRAN faster-whisper. Multilingual; CPU + CUDA."""
 
@@ -127,6 +155,7 @@ class FasterWhisperEngine(TranscriptionEngine):
         device: str = "cpu",
         compute_type: str = "int8",
         beam_size: int = 5,
+        languages: frozenset[str] | None = None,
     ):
         self._model_name = model
         self._device = device
@@ -135,7 +164,7 @@ class FasterWhisperEngine(TranscriptionEngine):
         self._model: WhisperModel | None = None  # lazy-loaded
         self.capabilities = EngineCapabilities(
             name="faster-whisper",
-            languages=_WHISPER_LANGS,
+            languages=languages if languages is not None else _languages_for_model(model),
             streaming=True,
             requires_gpu=device == "cuda",
             requires_apple_silicon=False,
@@ -170,6 +199,27 @@ class FasterWhisperEngine(TranscriptionEngine):
         return buf
 
     @staticmethod
+    def _to_float_mono(audio_pcm: bytes) -> Any:
+        """PCM or WAV bytes -> the 1D float32 array `detect_language()` requires.
+
+        `detect_language()` does NOT accept the file-like object `transcribe()`
+        takes -- it indexes its argument directly, so a BytesIO raises
+        `TypeError: '_io.BytesIO' object is not subscriptable`. Converting the
+        int16 PCM here rather than via `faster_whisper.audio.decode_audio` keeps
+        this off the av/ffmpeg path for audio we already know the format of.
+        """
+        import numpy as np
+
+        if audio_pcm[:4] == b"RIFF":
+            with wave.open(io.BytesIO(audio_pcm), "rb") as w:
+                pcm = w.readframes(w.getnframes())
+        else:
+            pcm = audio_pcm
+        if len(pcm) % 2:  # a truncated final sample would misalign the whole array
+            pcm = pcm[:-1]
+        return np.frombuffer(pcm, dtype=np.int16).astype("float32") / 32768.0
+
+    @staticmethod
     def _leading_slice(audio_pcm: bytes, sample_rate: int, seconds: float) -> bytes:
         """Return at most `seconds` of leading audio, preserving PCM-vs-WAV form."""
         max_bytes = int(sample_rate * 2 * seconds)
@@ -202,17 +252,18 @@ class FasterWhisperEngine(TranscriptionEngine):
             raise ValueError(f"FasterWhisperEngine requires sample_rate=16000, got {sample_rate}")
         model = await asyncio.to_thread(self._ensure_model)
         head = self._leading_slice(audio_pcm, sample_rate, LANGUAGE_DETECT_SECONDS)
-        wav = self._pcm_bytes_to_wav(head, sample_rate)
 
         def _run() -> LidResult:
             native = getattr(model, "detect_language", None)
             if native is not None:
-                lang, prob, *_ = native(wav)
+                lang, prob, *_ = native(self._to_float_mono(head))
                 return LidResult(language=str(lang), confidence=float(prob))
             # Older faster-whisper: no detect_language(). Read the language off a
             # normal auto-detect pass instead -- same encoder decision, just with
-            # decoding we discard.
-            _segments, info = model.transcribe(wav, language=None, beam_size=1)
+            # decoding we discard. This path DOES take a file-like object.
+            _segments, info = model.transcribe(
+                self._pcm_bytes_to_wav(head, sample_rate), language=None, beam_size=1
+            )
             return LidResult(
                 language=str(info.language), confidence=float(info.language_probability)
             )

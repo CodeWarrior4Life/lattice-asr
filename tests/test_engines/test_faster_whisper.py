@@ -6,11 +6,22 @@ from lattice_asr.engines.faster_whisper import FasterWhisperEngine
 @pytest.mark.r_tier
 @pytest.mark.asyncio
 async def test_capabilities():
-    eng = FasterWhisperEngine(model="distil-large-v3", device="cpu", compute_type="int8")
-    assert eng.capabilities.name == "faster-whisper"
-    assert "en" in eng.capabilities.languages
-    assert "es" in eng.capabilities.languages
-    assert eng.capabilities.streaming is True
+    """Coverage follows the CHECKPOINT, not faster-whisper's tokenizer.
+
+    This test asserted `"es" in distil-large-v3`'s languages until 2026-09-01.
+    That claim was false and load-bearing: it is why the multilingual route was
+    served by an English-only model which MEASURED en@0.9463 on Spanish audio and
+    translated it. A distilled checkpoint declares English only.
+    """
+    distil = FasterWhisperEngine(model="distil-large-v3", device="cpu", compute_type="int8")
+    assert distil.capabilities.name == "faster-whisper"
+    assert distil.capabilities.languages == frozenset({"en"})
+    assert distil.capabilities.streaming is True
+
+    multilingual = FasterWhisperEngine(model="medium", device="cpu", compute_type="int8")
+    assert "en" in multilingual.capabilities.languages
+    assert "es" in multilingual.capabilities.languages
+    assert multilingual.capabilities.streaming is True
 
 
 @pytest.mark.s_tier

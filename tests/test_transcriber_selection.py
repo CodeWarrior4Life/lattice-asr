@@ -27,10 +27,21 @@ def _hw(
 
 
 @pytest.mark.r_tier
-def test_cpu_only_uses_faster_whisper_for_both_routes():
+def test_cpu_only_uses_faster_whisper_for_both_routes_with_distinct_models():
+    """Both routes are faster-whisper, but they must NOT share one instance.
+
+    This asserted `reg["en"] is reg["multi"]` until 2026-09-01. That shared
+    instance was `distil-large-v3` -- an ENGLISH-ONLY model -- so the
+    multilingual route was served by a model that MEASURED en@0.9463 on Spanish
+    and translated it instead of transcribing. The routes are the same engine
+    CLASS with different checkpoints, and that distinction is the fix.
+    """
     reg = _build_engine_registry(_hw(), force=None)
     assert isinstance(reg["en"], FasterWhisperEngine)
-    assert reg["en"] is reg["multi"]  # single engine instance covers both
+    assert isinstance(reg["multi"], FasterWhisperEngine)
+    assert reg["en"] is not reg["multi"]
+    assert reg["en"].capabilities.languages == frozenset({"en"})
+    assert "es" in reg["multi"].capabilities.languages
 
 
 @pytest.mark.r_tier

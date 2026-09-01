@@ -119,7 +119,9 @@ async def test_low_lid_confidence_never_becomes_default_language(cpu_only_hw):
                 "detect_language",
                 new=AsyncMock(return_value=LidResult(language="??", confidence=0.3)),
             ),
-            patch.object(t._engines["en"], "transcribe", new=engine_mock),
+            # An undetermined language routes to the MULTILINGUAL engine now -- the
+            # whole point of the inversion -- so that is the one to intercept.
+            patch.object(t._engines["multi"], "transcribe", new=engine_mock),
         ):
             result = await t.transcribe(b"\x00" * 96000, language=None)
 
