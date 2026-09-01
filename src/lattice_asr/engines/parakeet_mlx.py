@@ -19,6 +19,8 @@ from lattice_asr.types import EngineCapabilities, Segment, TranscriptionResult
 class ParakeetMlxEngine(TranscriptionEngine):
     """Adapter for senstella/parakeet-mlx (Apple Silicon MLX). EN-only; lazy-loaded."""
 
+    required_packages = ("parakeet_mlx",)
+
     def __init__(self, *, model: str = "mlx-community/parakeet-tdt-0.6b-v3"):
         self._model_name = model
         self._model: Any = None  # lazy-loaded via _ensure_model

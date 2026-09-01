@@ -1,70 +1,48 @@
-# src/lattice_asr/lid.py
-"""Silero LID — language detection on first 1.5s. Spec §8."""
+"""Language identification — result type and the shared "undetermined" contract.
+
+**Silero LID was DELETED here on 2026-09-01.** What used to live in this module
+was ``SileroLid``, which called::
+
+    torch.hub.load("snakers4/silero-vad", "silero_lang_detector_95")
+
+Upstream removed that callable. The hub load raised on every invocation from
+2026-05-27 onward, and because ``Transcriber`` caught nothing and simply fell
+back to ``default_language``, the failure was **silent** -- every
+``language=None`` call quietly became English for three months.
+
+It is deleted rather than repaired because nothing needed it: the engines can
+identify language themselves (faster-whisper exposes native detection; Parakeet
+TDT v3 auto-detects internally), so a separate model, a ``torch.hub`` download
+and the 1.5s-slice latency contract were all pure cost.
+
+The lesson that outlived the model, and the reason ``UNDETERMINED`` exists: a
+detector that cannot tell you the language must SAY SO, not hand back a
+plausible default. See ``Transcriber._resolve_language``.
+"""
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
-from typing import Any
 
-# Spec §8 latency contract: Silero LID is bounded to the first 1.5s of audio
-# so detect() latency is ≤50ms regardless of caller input length.
-LID_AUDIO_SECONDS = 1.5
+# ISO 639-2 "und". Returned when an engine genuinely cannot determine the
+# language -- never substitute a default here, that is the bug this module
+# is a monument to.
+UNDETERMINED = "und"
 
 
 @dataclass(frozen=True)
 class LidResult:
+    """A language identification outcome.
+
+    ``confidence`` is the detector's own probability. A result of
+    ``LidResult(UNDETERMINED, 0.0)`` is the honest answer for "I cannot tell",
+    and callers must route it to an engine that can handle any language rather
+    than guessing.
+    """
+
     language: str
     confidence: float
 
-
-class SileroLid:
-    """Wraps Silero language-id model. CPU; <50ms on 1.5s audio.
-
-    Call ``warmup()`` once at startup; concurrent ``detect()`` calls before
-    warmup completes will redundantly re-trigger ``torch.hub.load``.
-    """
-
-    def __init__(self) -> None:
-        self._model: Any | None = None
-
-    async def warmup(self) -> None:
-        await asyncio.to_thread(self._ensure_model)
-
-    def _ensure_model(self) -> Any:
-        if self._model is None:
-            import torch  # type: ignore[import-not-found]
-
-            self._model, _utils = torch.hub.load(  # type: ignore[no-untyped-call]
-                "snakers4/silero-vad", "silero_lang_detector_95"
-            )
-        return self._model
-
-    async def detect(self, audio_pcm: bytes, sample_rate: int) -> LidResult:
-        if sample_rate != 16000:
-            raise ValueError("SileroLid requires sample_rate=16000")
-
-        def _run() -> LidResult:
-            import io
-            import wave
-
-            import numpy as np
-            import torch  # type: ignore[import-not-found]
-
-            model = self._ensure_model()
-            if audio_pcm[:4] == b"RIFF":
-                with wave.open(io.BytesIO(audio_pcm)) as w:
-                    pcm = w.readframes(w.getnframes())
-            else:
-                pcm = audio_pcm
-            arr = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
-            # Spec §8: bound input to LID_AUDIO_SECONDS for latency target.
-            max_samples = int(sample_rate * LID_AUDIO_SECONDS)
-            arr = arr[:max_samples]
-            tensor = torch.from_numpy(arr)
-            languages, lang_probs = model(tensor, top_n=1)  # type: ignore[no-untyped-call]
-            lang = str(languages[0]).split(",")[0][:2]
-            conf = float(lang_probs[0])
-            return LidResult(language=lang, confidence=conf)
-
-        return await asyncio.to_thread(_run)
+    @property
+    def is_determined(self) -> bool:
+        return self.language != UNDETERMINED

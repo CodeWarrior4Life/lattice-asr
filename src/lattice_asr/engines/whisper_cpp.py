@@ -20,6 +20,17 @@ class WhisperCppEngine(TranscriptionEngine):
             typical_rtfx=8.0,
         )
 
+    @classmethod
+    def is_available(cls) -> bool:
+        """False: this adapter is a declaration, not an implementation (W3.3).
+
+        `transcribe()` below raises. Reporting it unavailable is what stops
+        engine selection from routing real audio into a stub -- on Apple Silicon
+        this sits at the multilingual route, so before this, any non-English
+        dictation on a Mac would have hit NotImplementedError.
+        """
+        return False
+
     async def transcribe(
         self,
         audio_pcm: bytes,

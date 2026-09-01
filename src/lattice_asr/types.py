@@ -44,6 +44,12 @@ class TranscriptionResult:
     speaker_segments: tuple[SpeakerSegment, ...] = field(default_factory=tuple)
     audio_duration_ms: int = 0
     duration_ms: int = 0
+    # Non-None means THE LANGUAGE OF THIS TRANSCRIPT IS NOT TRUSTWORTHY, with a
+    # human-readable reason. Added 2026-09-01: the defect that cost 80% of a
+    # client call was not a missing detector, it was that an unreliable language
+    # decision looked exactly like a reliable one. A consumer surfacing a
+    # transcript should surface this alongside it.
+    language_warning: str | None = None
 
 
 @dataclass(frozen=True)
@@ -57,6 +63,12 @@ class AsrCallRecord:
     speaker_count: int | None
     tenant_id: str | None
     timestamp_utc: datetime
+    # Detector probability for `language_detected`, or None if nothing detected.
+    language_confidence: float | None = None
+    # Mirrors TranscriptionResult.language_warning so a telemetry sink can alert
+    # on silent-fallback rates instead of waiting for someone to read a bad
+    # transcript in a language they happen to speak.
+    language_warning: str | None = None
 
 
 class TelemetrySink(Protocol):

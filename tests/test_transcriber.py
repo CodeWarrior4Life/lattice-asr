@@ -63,10 +63,14 @@ async def test_transcribe_uses_lid_when_language_none(cpu_only_hw):
             audio_duration_ms=1000,
             duration_ms=50,
         )
+        # Detection is an engine capability now; on a host with no detecting
+        # engine installed `_detector` is legitimately None, so name it explicitly
+        # rather than depend on what happens to be pip-installed here.
+        t._detector = t._engines["multi"]
         with (
             patch.object(
-                t._lid,
-                "detect",
+                t._detector,
+                "detect_language",
                 new=AsyncMock(return_value=LidResult(language="es", confidence=0.95)),
             ),
             patch.object(
@@ -76,17 +80,30 @@ async def test_transcribe_uses_lid_when_language_none(cpu_only_hw):
             await t.transcribe(b"\x00\x00\x00\x00" * 24000, language=None)
     assert sink.records[0].language_detected == "es"
     assert sink.records[0].language_requested is None
+    assert sink.records[0].language_confidence == 0.95
+    assert sink.records[0].language_warning is None
 
 
 @pytest.mark.r_tier
 @pytest.mark.asyncio
-async def test_low_lid_confidence_falls_back_to_default_language(cpu_only_hw):
+async def test_low_lid_confidence_never_becomes_default_language(cpu_only_hw):
+    """THE REGRESSION GUARD for the 2026-05-27 silent-English outage.
+
+    This test asserted the OPPOSITE until 2026-09-01: that a low-confidence
+    detection fell back to `default_language`. That behaviour sent precisely the
+    least-certain audio to the least-capable engine, and it silently transcribed
+    every non-English recording as English for three months -- 80% word loss on a
+    real client call, surfaced as nothing at all.
+
+    The contract now: uncertainty resolves to `language=None` (let the engine
+    auto-detect), and the decision is STAMPED so it cannot be silent again.
+    """
     sink = ListTelemetrySink()
     with patch("lattice_asr.transcriber.detect_hardware", return_value=cpu_only_hw):
         t = Transcriber(default_language="en", telemetry_sink=sink)
         fake_result = TranscriptionResult(
             text="...",
-            language="en",
+            language="es",
             confidence=0.5,
             engine_name="faster-whisper",
             segments=(),
@@ -94,16 +111,28 @@ async def test_low_lid_confidence_falls_back_to_default_language(cpu_only_hw):
             audio_duration_ms=1000,
             duration_ms=50,
         )
+        t._detector = t._engines["multi"]
+        engine_mock = AsyncMock(return_value=fake_result)
         with (
             patch.object(
-                t._lid,
-                "detect",
+                t._detector,
+                "detect_language",
                 new=AsyncMock(return_value=LidResult(language="??", confidence=0.3)),
             ),
-            patch.object(t._engines["en"], "transcribe", new=AsyncMock(return_value=fake_result)),
+            patch.object(t._engines["en"], "transcribe", new=engine_mock),
         ):
-            await t.transcribe(b"\x00" * 96000, language=None)
-    assert sink.records[0].language_detected == "en"  # fell back to default
+            result = await t.transcribe(b"\x00" * 96000, language=None)
+
+    # The engine was asked to auto-detect -- NOT told "en".
+    assert engine_mock.await_args.args[2] is None, "low confidence must not become a language"
+
+    rec = sink.records[0]
+    assert rec.language_detected != "en" or fake_result.language != "en"
+    assert rec.language_confidence == 0.3
+    # LOUD: the uncertainty is recorded in telemetry and on the transcript.
+    assert rec.language_warning is not None
+    assert "low-confidence" in rec.language_warning
+    assert result.language_warning is not None
 
 
 @pytest.mark.r_tier
@@ -253,8 +282,9 @@ async def test_lid_confidence_at_threshold_routes_to_detected(cpu_only_hw):
             duration_ms=50,
         )
         lid_result = LidResult(language="es", confidence=threshold)
+        t._detector = t._engines["multi"]
         with (
-            patch.object(t._lid, "detect", new=AsyncMock(return_value=lid_result)),
+            patch.object(t._detector, "detect_language", new=AsyncMock(return_value=lid_result)),
             patch.object(
                 t._engines["multi"], "transcribe", new=AsyncMock(return_value=fake_result)
             ),

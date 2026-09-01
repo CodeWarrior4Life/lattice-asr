@@ -10,7 +10,8 @@ import wave
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
-from lattice_asr.engines.base import TranscriptionEngine
+from lattice_asr.engines.base import LANGUAGE_DETECT_SECONDS, TranscriptionEngine
+from lattice_asr.lid import LidResult
 from lattice_asr.types import EngineCapabilities, Segment, TranscriptionResult
 
 if TYPE_CHECKING:
@@ -117,6 +118,8 @@ except (ImportError, AttributeError):
 class FasterWhisperEngine(TranscriptionEngine):
     """Adapter for SYSTRAN faster-whisper. Multilingual; CPU + CUDA."""
 
+    required_packages = ("faster_whisper",)
+
     def __init__(
         self,
         *,
@@ -165,6 +168,56 @@ class FasterWhisperEngine(TranscriptionEngine):
             w.writeframes(audio_pcm)
         buf.seek(0)
         return buf
+
+    @staticmethod
+    def _leading_slice(audio_pcm: bytes, sample_rate: int, seconds: float) -> bytes:
+        """Return at most `seconds` of leading audio, preserving PCM-vs-WAV form."""
+        max_bytes = int(sample_rate * 2 * seconds)
+        if audio_pcm[:4] != b"RIFF":
+            return audio_pcm[:max_bytes]
+        with wave.open(io.BytesIO(audio_pcm), "rb") as w:
+            frames = w.readframes(min(w.getnframes(), int(w.getframerate() * seconds)))
+            rate, channels, width = w.getframerate(), w.getnchannels(), w.getsampwidth()
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as out:
+            out.setnchannels(channels)
+            out.setsampwidth(width)
+            out.setframerate(rate)
+            out.writeframes(frames)
+        return buf.getvalue()
+
+    async def detect_language(self, audio_pcm: bytes, sample_rate: int) -> LidResult | None:
+        """Identify the language using faster-whisper's OWN detector — no Silero.
+
+        This is what replaced ``SileroLid``. Whisper's encoder already produces a
+        language distribution, so detection costs one forward pass over a bounded
+        leading slice and needs no second model and no ``torch.hub`` download.
+
+        Two code paths because ``WhisperModel.detect_language()`` is only present
+        in newer faster-whisper releases; the ``transcribe()`` fallback reads the
+        same ``info.language`` off an API that has always existed. Both are
+        bounded to ``LANGUAGE_DETECT_SECONDS``.
+        """
+        if sample_rate != 16000:
+            raise ValueError(f"FasterWhisperEngine requires sample_rate=16000, got {sample_rate}")
+        model = await asyncio.to_thread(self._ensure_model)
+        head = self._leading_slice(audio_pcm, sample_rate, LANGUAGE_DETECT_SECONDS)
+        wav = self._pcm_bytes_to_wav(head, sample_rate)
+
+        def _run() -> LidResult:
+            native = getattr(model, "detect_language", None)
+            if native is not None:
+                lang, prob, *_ = native(wav)
+                return LidResult(language=str(lang), confidence=float(prob))
+            # Older faster-whisper: no detect_language(). Read the language off a
+            # normal auto-detect pass instead -- same encoder decision, just with
+            # decoding we discard.
+            _segments, info = model.transcribe(wav, language=None, beam_size=1)
+            return LidResult(
+                language=str(info.language), confidence=float(info.language_probability)
+            )
+
+        return await asyncio.to_thread(_run)
 
     async def transcribe(
         self,
