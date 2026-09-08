@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-08
+
+### Fixed
+- `ParakeetMlxEngine`: the first transcription after loading the model failed with
+  `RuntimeError('There is no Stream(cpu, 0) in current thread.')` whenever it ran on a
+  different thread than the load. MLX streams are thread-local and `from_pretrained`
+  leaves every weight's dtype cast lazy on the loader's stream. All MLX work for an
+  engine now runs on ONE dedicated thread, and parameters are forced concrete
+  (`mx.eval`) immediately after load. Measured in lattice-dictate on trinity: 7 identical
+  failures, each the first dictation after a daemon start.
+
 ## [0.1.0] - 2026-05-11
 
 **Published to PyPI:** https://pypi.org/project/lattice-asr/0.1.0/ — install with `pip install lattice-asr==0.1.0`.

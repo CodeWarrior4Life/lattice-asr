@@ -1,4 +1,31 @@
-"""ParakeetMlxEngine — Apple Silicon MLX EN-only. Implemented in W3.1. Spec §6.1."""
+"""ParakeetMlxEngine — Apple Silicon MLX EN-only. Implemented in W3.1. Spec §6.1.
+
+THREADING LAW (2026-09-08, measured on trinity, mlx 0.32.0 / parakeet-mlx 0.5.2):
+**every MLX operation for this engine runs on ONE dedicated thread.**
+
+MLX streams are thread-local. `parakeet_mlx.from_pretrained` leaves the dtype
+casts of every weight LAZY (`v.astype(dtype)`), each recorded against the
+loading thread's default stream. The first thread that forces one of those
+pending casts must be the thread that owns that stream, or MLX raises
+
+    RuntimeError('There is no Stream(cpu, 0) in current thread.')
+
+`asyncio.to_thread` hands work to a shared pool where any idle worker may pick
+up the job, so load-on-thread-A / transcribe-on-thread-B was a lottery the
+operator lost on the FIRST dictation after every daemon start (7 identical
+log signatures in lattice-dictate, 5-for-5 on the pattern warm -> first press
+fails -> second press works). Reproduced in isolation: load on A, transcribe
+on fresh B/C/D and on main -> all four fail; load + full `mx.eval` on A, or
+load + transcribe pinned to one executor thread -> all pass.
+
+Two layers, both kept on purpose:
+1. `_materialize` forces every parameter to a concrete array right after load,
+   so nothing lazy survives on the loader's stream.
+2. A single-worker executor (`_mlx`) owns load AND inference, so even state the
+   model creates lazily later (caches, positional tables) is born and used on
+   the same thread. This also serializes inference on the model, which is not
+   reentrant anyway.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +36,8 @@ import os
 import tempfile
 import time
 import wave
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from lattice_asr.engines.base import TranscriptionEngine
@@ -24,6 +52,8 @@ class ParakeetMlxEngine(TranscriptionEngine):
     def __init__(self, *, model: str = "mlx-community/parakeet-tdt-0.6b-v3"):
         self._model_name = model
         self._model: Any = None  # lazy-loaded via _ensure_model
+        # The one thread that ever touches MLX for this engine. See module doc.
+        self._mlx = ThreadPoolExecutor(max_workers=1, thread_name_prefix="parakeet-mlx")
         self.capabilities = EngineCapabilities(
             name="parakeet-mlx",
             languages=frozenset({"en"}),
@@ -34,13 +64,38 @@ class ParakeetMlxEngine(TranscriptionEngine):
         )
 
     async def warmup(self) -> None:
-        await asyncio.to_thread(self._ensure_model)
+        await self._on_mlx_thread(self._ensure_model)
+
+    async def _on_mlx_thread(self, fn: Callable[..., Any], *args: Any) -> Any:
+        """Run `fn` on the engine's dedicated MLX thread (never the shared pool)."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._mlx, fn, *args)
+
+    @staticmethod
+    def _materialize(model: Any) -> None:
+        """Force every parameter to a concrete array on the CURRENT thread.
+
+        Best-effort: a model without `parameters()` (test fakes) is left alone,
+        and an MLX import failure here is not this method's problem to report.
+        """
+        params = getattr(model, "parameters", None)
+        if params is None:
+            return
+        try:
+            import mlx.core as mx  # type: ignore[import-untyped]
+            from mlx.utils import tree_flatten  # type: ignore[import-untyped]
+
+            mx.eval([v for _, v in tree_flatten(params())])
+        except ImportError:
+            return
 
     def _ensure_model(self) -> Any:
         if self._model is None:
             from parakeet_mlx import from_pretrained  # type: ignore[import-untyped]
 
-            self._model = from_pretrained(self._model_name)
+            model = from_pretrained(self._model_name)
+            self._materialize(model)
+            self._model = model
         return self._model
 
     @staticmethod
@@ -85,10 +140,10 @@ class ParakeetMlxEngine(TranscriptionEngine):
         if sample_rate != 16000:
             raise ValueError(f"ParakeetMlxEngine requires sample_rate=16000, got {sample_rate}")
         t0 = time.monotonic()
-        model = await asyncio.to_thread(self._ensure_model)
+        model = await self._on_mlx_thread(self._ensure_model)
         path = await asyncio.to_thread(self._write_wav_tempfile, audio_pcm, sample_rate)
         try:
-            result = await asyncio.to_thread(model.transcribe, path)
+            result = await self._on_mlx_thread(model.transcribe, path)
         finally:
             with contextlib.suppress(OSError):
                 os.unlink(path)
