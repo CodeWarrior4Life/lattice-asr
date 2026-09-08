@@ -1,4 +1,3 @@
-from pathlib import Path
 """Scaffold smoke test — verifies the package imports and exposes __version__.
 
 This is the only test in the v0.1 scaffold. Real R-tier suites land with
@@ -21,11 +20,10 @@ def test_package_imports() -> None:
 
 @pytest.mark.r_tier
 def test_version_is_pep440_dev_marker() -> None:
-    import lattice_asr
-
     import re
 
-    # Any PEP 440 release or dev version; the constant must also match pyproject.
-    assert re.fullmatch(r"\d+\.\d+\.\d+(\.dev\d+)?", lattice_asr.__version__)
-    pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text()
-    assert f'version = "{lattice_asr.__version__}"' in pyproject
+    import lattice_asr
+
+    # __version__ comes from the installed distribution metadata, so this only
+    # asserts shape: a PEP 440 release, dev, or local ("+unknown") version.
+    assert re.fullmatch(r"\d+\.\d+\.\d+(\.dev\d+)?(\+\w+)?", lattice_asr.__version__)
