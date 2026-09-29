@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import io
+import logging
 import math
 import time
 import wave
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from lattice_asr.engines.base import LANGUAGE_DETECT_SECONDS, TranscriptionEngine
@@ -16,6 +18,8 @@ from lattice_asr.types import EngineCapabilities, Segment, TranscriptionResult
 
 if TYPE_CHECKING:
     from faster_whisper import WhisperModel  # type: ignore[import-untyped]
+
+logger = logging.getLogger(__name__)
 
 # The tokenizer's language list is the CEILING of what a Whisper checkpoint can emit -- it is NOT
 # what any given checkpoint was trained to do. Reading it as capability is the bug this comment
@@ -156,7 +160,9 @@ class FasterWhisperEngine(TranscriptionEngine):
         compute_type: str = "int8",
         beam_size: int = 5,
         languages: frozenset[str] | None = None,
+        cpu_fallback_model: str | None = None,
     ):
+        self._cpu_fallback_model = cpu_fallback_model
         self._model_name = model
         self._device = device
         self._compute_type = compute_type
@@ -178,11 +184,35 @@ class FasterWhisperEngine(TranscriptionEngine):
         if self._model is None:
             from faster_whisper import WhisperModel  # type: ignore[import-untyped]
 
-            self._model = WhisperModel(
-                self._model_name,
-                device=self._device,
-                compute_type=self._compute_type,
-            )
+            try:
+                self._model = WhisperModel(
+                    self._model_name,
+                    device=self._device,
+                    compute_type=self._compute_type,
+                )
+            except Exception as exc:
+                if self._device != "cuda" or self._cpu_fallback_model is None:
+                    raise
+                # A GPU that is present but unusable (runtime DLLs missing,
+                # driver too old, too little VRAM for the model) must degrade to
+                # the CPU tier, loudly, rather than leave the host with no ASR.
+                logger.warning(
+                    "faster-whisper: CUDA load of %r FAILED (%s: %s); falling back to CPU %r int8",
+                    self._model_name,
+                    type(exc).__name__,
+                    exc,
+                    self._cpu_fallback_model,
+                )
+                self._model_name = self._cpu_fallback_model
+                self._device = "cpu"
+                self._compute_type = "int8"
+                self.capabilities = replace(
+                    self.capabilities,
+                    languages=_languages_for_model(self._model_name),
+                    requires_gpu=False,
+                    typical_rtfx=2.0,
+                )
+                self._model = WhisperModel(self._model_name, device="cpu", compute_type="int8")
         return self._model
 
     @staticmethod

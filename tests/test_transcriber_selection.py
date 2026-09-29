@@ -157,3 +157,76 @@ def test_has_cuda_falls_back_to_ctranslate2_when_torch_is_absent(monkeypatch):
     assert hardware._has_cuda() is True
     fake_ct2.get_cuda_device_count = lambda: 0
     assert hardware._has_cuda() is False
+
+
+def test_disable_cuda_env_pins_the_cpu_tier(monkeypatch):
+    import sys
+    import types
+
+    from lattice_asr import hardware
+
+    monkeypatch.setitem(
+        sys.modules, "ctranslate2", types.SimpleNamespace(get_cuda_device_count=lambda: 1)
+    )
+    monkeypatch.setenv("LATTICE_ASR_DISABLE_CUDA", "1")
+    assert hardware._has_cuda() is False
+    monkeypatch.setenv("LATTICE_ASR_DISABLE_CUDA", "0")
+    # "0" is NOT an opt-out (negative twin); the answer then comes from the probes.
+    monkeypatch.setattr(hardware, "_ct2_cuda_device_count", lambda: 1)
+    monkeypatch.setitem(sys.modules, "torch", None)
+    assert hardware._has_cuda() is True
+
+
+def test_windows_driver_without_cuda_runtime_is_not_cuda(monkeypatch):
+    import sys
+    import types
+
+    from lattice_asr import hardware
+
+    monkeypatch.setitem(
+        sys.modules, "ctranslate2", types.SimpleNamespace(get_cuda_device_count=lambda: 1)
+    )
+    monkeypatch.setattr(hardware.sys, "platform", "win32")
+    monkeypatch.setattr(hardware, "_cuda_runtime_loads", lambda: False)
+    assert hardware._ct2_cuda_device_count() == 0
+    monkeypatch.setattr(hardware, "_cuda_runtime_loads", lambda: True)
+    assert hardware._ct2_cuda_device_count() == 1
+
+
+def test_cuda_load_failure_falls_back_to_cpu(monkeypatch):
+    import sys
+    import types
+
+    loads = []
+
+    class FakeModel:
+        def __init__(self, name, device, compute_type):
+            loads.append((name, device, compute_type))
+            if device == "cuda":
+                raise RuntimeError("Library cublas64_12.dll is not found")
+
+    monkeypatch.setitem(
+        sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeModel)
+    )
+    e = FasterWhisperEngine(
+        model="large-v3", device="cuda", compute_type="default", cpu_fallback_model="small"
+    )
+    e._ensure_model()
+    assert loads == [("large-v3", "cuda", "default"), ("small", "cpu", "int8")]
+    assert e._device == "cpu" and e.capabilities.requires_gpu is False
+
+
+def test_cuda_load_failure_without_fallback_still_raises(monkeypatch):
+    import sys
+    import types
+
+    class FakeModel:
+        def __init__(self, name, device, compute_type):
+            raise RuntimeError("boom")
+
+    monkeypatch.setitem(
+        sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeModel)
+    )
+    e = FasterWhisperEngine(model="large-v3", device="cuda", compute_type="float16")
+    with pytest.raises(RuntimeError):
+        e._ensure_model()

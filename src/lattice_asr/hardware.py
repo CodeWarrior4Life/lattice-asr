@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import platform
+import sys
 import warnings
 from dataclasses import dataclass
 from typing import Literal
@@ -38,12 +39,33 @@ def _ct2_cuda_device_count() -> int:
     try:
         import ctranslate2  # type: ignore[import-not-found]
 
-        return int(ctranslate2.get_cuda_device_count())
+        count = int(ctranslate2.get_cuda_device_count())
     except Exception:
         return 0
+    # The device count needs only the NVIDIA DRIVER; cuBLAS/cuDNN load later,
+    # at first use. A host with the driver but not the runtime (the CPU-only
+    # Windows bundle on a gaming laptop) would otherwise pick the GPU route and
+    # fail at model load. Prove the runtime loads before claiming CUDA.
+    if count and sys.platform == "win32" and not _cuda_runtime_loads():
+        return 0
+    return count
+
+
+def _cuda_runtime_loads() -> bool:
+    import ctypes
+
+    try:
+        ctypes.WinDLL("cublas64_12.dll")
+        return True
+    except OSError:
+        return False
 
 
 def _has_cuda() -> bool:
+    # Explicit opt-out: a CPU-only install (no CUDA runtime shipped) pins itself
+    # to the CPU tier however the GPU probes answer.
+    if os.environ.get("LATTICE_ASR_DISABLE_CUDA", "").strip() not in ("", "0"):
+        return False
     try:
         import torch  # type: ignore[import-not-found]
     except Exception:

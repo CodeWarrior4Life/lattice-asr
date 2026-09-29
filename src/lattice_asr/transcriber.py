@@ -112,7 +112,13 @@ def _build_engine_registry(
         # it and converts itself otherwise; an explicit "float16" RAISES on cards
         # without efficient fp16, and here we cannot check the capability first.
         engine = FasterWhisperEngine(
-            model=cuda_model or MULTILINGUAL_MODEL_CUDA, device="cuda", compute_type="default"
+            model=cuda_model or MULTILINGUAL_MODEL_CUDA,
+            device="cuda",
+            compute_type="default",
+            # The probe cannot prove the GPU usable (VRAM, driver age): if the
+            # load fails, serve from the CPU tier instead of having no ASR.
+            cpu_fallback_model=cpu_model or "small",
+            beam_size=5,
         )
         return {"en": engine, "multi": engine}
 
