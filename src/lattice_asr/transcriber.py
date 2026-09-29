@@ -118,7 +118,7 @@ def _build_engine_registry(
             # The probe cannot prove the GPU usable (VRAM, driver age): if the
             # load fails, serve from the CPU tier instead of having no ASR.
             cpu_fallback_model=cpu_model or "small",
-            beam_size=5,
+            beam_size=cpu_beam_size or 5,
         )
         return {"en": engine, "multi": engine}
 

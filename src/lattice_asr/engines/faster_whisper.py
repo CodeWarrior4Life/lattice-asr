@@ -185,11 +185,23 @@ class FasterWhisperEngine(TranscriptionEngine):
             from faster_whisper import WhisperModel  # type: ignore[import-untyped]
 
             try:
-                self._model = WhisperModel(
+                model = WhisperModel(
                     self._model_name,
                     device=self._device,
                     compute_type=self._compute_type,
                 )
+                if self._device == "cuda" and self._cpu_fallback_model is not None:
+                    # CTranslate2 loads cuDNN / cuBLAS kernels at the FIRST
+                    # inference, not at load: an unsupported card, a missing
+                    # cuDNN sub-DLL or an OOM only shows up here. Probe one second
+                    # of silence inside the same guard so the fallback sees it.
+                    import numpy as np
+
+                    segments, _info = model.transcribe(
+                        np.zeros(16000, dtype=np.float32), language="en", beam_size=1
+                    )
+                    list(segments)
+                self._model = model
             except Exception as exc:
                 if self._device != "cuda" or self._cpu_fallback_model is None:
                     raise

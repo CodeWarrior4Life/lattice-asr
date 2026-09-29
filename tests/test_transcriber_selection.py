@@ -205,6 +205,9 @@ def test_cuda_load_failure_falls_back_to_cpu(monkeypatch):
             if device == "cuda":
                 raise RuntimeError("Library cublas64_12.dll is not found")
 
+        def transcribe(self, audio, **kw):
+            return iter(()), None
+
     monkeypatch.setitem(
         sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeModel)
     )
@@ -230,3 +233,31 @@ def test_cuda_load_failure_without_fallback_still_raises(monkeypatch):
     e = FasterWhisperEngine(model="large-v3", device="cuda", compute_type="float16")
     with pytest.raises(RuntimeError):
         e._ensure_model()
+
+
+def test_cuda_failure_at_first_inference_also_falls_back(monkeypatch):
+    """cuDNN / kernel images / VRAM fail at the first INFERENCE, not at load."""
+    import sys
+    import types
+
+    loads = []
+
+    class FakeModel:
+        def __init__(self, name, device, compute_type):
+            loads.append((name, device))
+            self.device = device
+
+        def transcribe(self, audio, **kw):
+            if self.device == "cuda":
+                raise RuntimeError("Could not load library cudnn_ops64_9.dll")
+            return iter(()), None
+
+    monkeypatch.setitem(
+        sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeModel)
+    )
+    e = FasterWhisperEngine(
+        model="large-v3", device="cuda", compute_type="default", cpu_fallback_model="small"
+    )
+    e._ensure_model()
+    assert loads == [("large-v3", "cuda"), ("small", "cpu")]
+    assert e._device == "cpu"
