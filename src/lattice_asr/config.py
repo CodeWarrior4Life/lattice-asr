@@ -53,6 +53,9 @@ class LatticeAsrConfig:
     # then serves every language, so there is no English-only route to mistranslate.
     cpu_model: str | None = None
     cuda_model: str | None = None
+    # Beam width for the cpu_model engine (None = 5). 1 = greedy decoding, the
+    # usual CPU trade: materially faster, slightly less accurate.
+    cpu_beam_size: int | None = None
     remote: RemoteConfig = field(default_factory=RemoteConfig)
     diarization: DiarizationConfig = field(default_factory=DiarizationConfig)
     lid: LidConfig = field(default_factory=LidConfig)
@@ -123,6 +126,7 @@ def load_config(path: Path | str | None = None) -> LatticeAsrConfig:
         hardware_force=raw.get("hardware_force"),
         cpu_model=raw.get("cpu_model"),
         cuda_model=raw.get("cuda_model"),
+        cpu_beam_size=raw.get("cpu_beam_size"),
         remote=remote,
         diarization=diar,
         lid=lid,

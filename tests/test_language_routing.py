@@ -136,7 +136,9 @@ async def test_detector_exception_is_warned_not_swallowed(caplog):
     which is why nobody noticed for three months.
     """
     broad = _fake("whisper", {"en", "es"})
-    t = _transcriber({"en": broad, "multi": broad})
+    # Two engines: a lone detecting engine skips the separate pass (see
+    # test_single_detecting_engine_skips_the_separate_detection_pass).
+    t = _transcriber({"en": _fake("parakeet", {"en"}), "multi": broad})
     t._detector = broad
     with (
         patch.object(
@@ -183,7 +185,9 @@ async def test_explicit_language_bypasses_detection_entirely():
 @pytest.mark.asyncio
 async def test_undetermined_detection_yields_no_language():
     broad = _fake("whisper", {"en", "es"})
-    t = _transcriber({"en": broad, "multi": broad})
+    # Two engines: a lone detecting engine skips the separate pass (see
+    # test_single_detecting_engine_skips_the_separate_detection_pass).
+    t = _transcriber({"en": _fake("parakeet", {"en"}), "multi": broad})
     t._detector = broad
     with patch.object(
         broad, "detect_language", new=AsyncMock(return_value=LidResult(UNDETERMINED, 0.0))
@@ -212,7 +216,9 @@ async def test_warning_reaches_both_transcript_and_telemetry():
     """Acceptance criterion: a wrong-language result must be LOUD in the record."""
     sink = ListTelemetrySink()
     broad = _fake("whisper", {"en", "es"})
-    t = _transcriber({"en": broad, "multi": broad}, telemetry_sink=sink)
+    # Two engines: a lone detecting engine skips the separate pass (see
+    # test_single_detecting_engine_skips_the_separate_detection_pass).
+    t = _transcriber({"en": _fake("parakeet", {"en"}), "multi": broad}, telemetry_sink=sink)
     t._detector = broad
     with patch.object(broad, "detect_language", new=AsyncMock(return_value=LidResult("es", 0.10))):
         result = await t.transcribe(b"\x00" * 3200, 16000, language=None)
@@ -533,7 +539,7 @@ async def test_audio_detected_language_is_credited_to_the_detector_not_the_engin
 
     e = type("_E", (_Echo,), {"_AVAILABLE": True})("parakeet", {"en", "es"})
     sink = ListTelemetrySink()
-    t = _transcriber({"en": e, "multi": e}, telemetry_sink=sink)
+    t = _transcriber({"en": _fake("parakeet", {"en"}), "multi": e}, telemetry_sink=sink)
     t._detector = e
     with patch.object(e, "detect_language", new=AsyncMock(return_value=LidResult("es", 0.9468))):
         result = await t.transcribe(b"\x00" * 3200, 16000, language=None)
@@ -544,3 +550,36 @@ async def test_audio_detected_language_is_credited_to_the_detector_not_the_engin
     )
     assert result.confidence == pytest.approx(0.9468)
     assert sink.records[0].language_confidence == pytest.approx(0.9468)
+
+
+# --- 2026-09-28: a lone detecting engine must not run the encoder twice ---
+
+
+class _CountingDetector(_FakeEngine):
+    detect_calls = 0
+
+    async def detect_language(self, audio_pcm, sample_rate):
+        type(self).detect_calls += 1
+        return LidResult("es", 0.99)
+
+
+@pytest.mark.asyncio
+async def test_single_detecting_engine_skips_the_separate_detection_pass():
+    cls = type("_Solo", (_CountingDetector,), {"detect_calls": 0})
+    solo = cls("whisper", {"en", "es"})
+    t = _transcriber({"en": solo, "multi": solo})
+    assert t._detector is solo
+    result = await t.transcribe(b"\x00" * 3200, 16000)
+    assert cls.detect_calls == 0
+    assert result.language_source != "audio-lid"
+
+
+@pytest.mark.asyncio
+async def test_detection_still_runs_when_a_second_engine_could_be_chosen():
+    """Negative twin: with a specialist to route to, detection decides the route."""
+    cls = type("_Duo", (_CountingDetector,), {"detect_calls": 0})
+    broad = cls("whisper", {"en", "es"})
+    t = _transcriber({"en": _fake("parakeet", {"en"}), "multi": broad})
+    result = await t.transcribe(b"\x00" * 3200, 16000)
+    assert cls.detect_calls == 1
+    assert result.language == "es" and result.language_source == "audio-lid"

@@ -39,6 +39,7 @@ def _build_engine_registry(
     *,
     cpu_model: str | None = None,
     cuda_model: str | None = None,
+    cpu_beam_size: int | None = None,
 ) -> dict[str, TranscriptionEngine]:
     """Build {language_route: engine}. Spec §5.
 
@@ -116,7 +117,9 @@ def _build_engine_registry(
         return {"en": engine, "multi": engine}
 
     if cpu_model:
-        engine = FasterWhisperEngine(model=cpu_model, device="cpu", compute_type="int8")
+        engine = FasterWhisperEngine(
+            model=cpu_model, device="cpu", compute_type="int8", beam_size=cpu_beam_size or 5
+        )
         return {"en": engine, "multi": engine}
 
     # Two engines, not one shared instance: distil-large-v3 is fast and English-only,
@@ -156,6 +159,7 @@ class Transcriber:
             force_engine or self._config.hardware_force,
             cpu_model=self._config.cpu_model,
             cuda_model=self._config.cuda_model,
+            cpu_beam_size=self._config.cpu_beam_size,
         )
         # Language detection is a capability OF AN ENGINE now, not a separate
         # model. Silero is gone (see lattice_asr.lid); whichever engine can
@@ -257,6 +261,10 @@ class Transcriber:
             return None
         return max(candidates, key=lambda e: len(e.capabilities.languages))
 
+    def _detector_is_the_only_engine(self) -> bool:
+        available = [e for e in dict.fromkeys(self._engines.values()) if type(e).is_available()]
+        return len(available) == 1 and available[0] is self._detector
+
     def _select_engine(self, language: str | None) -> TranscriptionEngine:
         """Pick the engine for `language`, routing by CAPABILITY not by name.
 
@@ -352,6 +360,16 @@ class Transcriber:
                     "without a confidence score"
                 ),
             )
+
+        if self._detector_is_the_only_engine():
+            # One engine both detects and transcribes (the cpu_model tier, the
+            # torch-less GPU route): its transcribe(language=None) detects from
+            # the SAME encoder pass, and every outcome of a separate detection
+            # routes to that same engine anyway. Detecting first ran the encoder
+            # twice -- MEASURED 2026-09-28 on windows-latest, faster-whisper small:
+            # 4.8 s en-pinned vs 9.0 s auto-detect for a 3.5 s utterance.
+            # Provenance is then the engine's own report (source "engine").
+            return None, None, None
 
         try:
             detection = await self._detector.detect_language(audio_pcm, sample_rate)
