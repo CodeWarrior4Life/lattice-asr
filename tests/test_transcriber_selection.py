@@ -91,3 +91,69 @@ def test_unknown_force_engine_raises():
 def test_force_remote_empty_url_raises():
     with pytest.raises(ValueError, match="requires a URL"):
         _build_engine_registry(_hw(), force="remote:")
+
+
+# --- 2026-09-28: torch-less CUDA (frozen Windows bundle) + model overrides ---
+
+
+@pytest.mark.r_tier
+def test_cuda_with_unknown_capability_routes_whisper_to_gpu():
+    """CUDA seen only via CTranslate2 (no torch, so capability None): Whisper on
+    the GPU for every language. Before this it fell through to the CPU tier."""
+    reg = _build_engine_registry(_hw(nvidia_cuda=True, cuda_cap=None), force=None)
+    assert reg["en"] is reg["multi"]
+    assert reg["en"].capabilities.name == "faster-whisper"
+    assert reg["en"]._device == "cuda"
+    assert reg["en"]._compute_type == "default"
+
+
+@pytest.mark.r_tier
+def test_old_gpu_with_known_capability_still_routes_to_cpu():
+    """Negative twin: a KNOWN capability below 7.0 keeps its pre-existing CPU
+    route; the new GPU branch is only for the unknown-capability case."""
+    reg = _build_engine_registry(_hw(nvidia_cuda=True, cuda_cap=(6, 1)), force=None)
+    assert reg["en"]._device == "cpu"
+
+
+@pytest.mark.r_tier
+def test_cpu_model_override_serves_every_language_from_one_model():
+    reg = _build_engine_registry(_hw(), force=None, cpu_model="small")
+    assert reg["en"] is reg["multi"]
+    assert reg["en"]._model_name == "small"
+    assert "es" in reg["en"].capabilities.languages
+    assert reg["en"]._device == "cpu"
+
+
+@pytest.mark.r_tier
+def test_no_cpu_model_keeps_the_two_tested_defaults():
+    reg = _build_engine_registry(_hw(), force=None, cpu_model=None)
+    assert reg["en"] is not reg["multi"]
+
+
+@pytest.mark.r_tier
+def test_cuda_model_override_applies_to_torchless_gpu_route():
+    reg = _build_engine_registry(_hw(nvidia_cuda=True), force=None, cuda_model="medium")
+    assert "es" in reg["en"].capabilities.languages
+    assert reg["en"]._device == "cuda"
+
+
+def test_has_cuda_falls_back_to_ctranslate2_when_torch_is_absent(monkeypatch):
+    import builtins
+    import sys
+    import types
+
+    from lattice_asr import hardware
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *a, **k):
+        if name == "torch":
+            raise ImportError("no torch")
+        return real_import(name, *a, **k)
+
+    fake_ct2 = types.SimpleNamespace(get_cuda_device_count=lambda: 1)
+    monkeypatch.setitem(sys.modules, "ctranslate2", fake_ct2)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    assert hardware._has_cuda() is True
+    fake_ct2.get_cuda_device_count = lambda: 0
+    assert hardware._has_cuda() is False

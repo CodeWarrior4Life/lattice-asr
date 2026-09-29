@@ -28,16 +28,36 @@ _OS_MAP = {"Darwin": "darwin", "Linux": "linux", "Windows": "win32"}
 _ARCH_MAP = {"arm64": "arm64", "aarch64": "arm64", "AMD64": "x86_64", "x86_64": "x86_64"}
 
 
+def _ct2_cuda_device_count() -> int:
+    """CUDA devices as CTranslate2 (faster-whisper's runtime) sees them.
+
+    The fallback for installs with no torch -- a faster-whisper-only install, e.g.
+    the frozen Windows bundle. Asking torch alone made every such host report
+    "no GPU" and route to the CPU tier even with an NVIDIA card present.
+    """
+    try:
+        import ctranslate2  # type: ignore[import-not-found]
+
+        return int(ctranslate2.get_cuda_device_count())
+    except Exception:
+        return 0
+
+
 def _has_cuda() -> bool:
     try:
         import torch  # type: ignore[import-not-found]
-
+    except Exception:
+        return _ct2_cuda_device_count() > 0
+    try:
         return bool(torch.cuda.is_available())
     except Exception:
         return False
 
 
 def _cuda_capability() -> tuple[int, int] | None:
+    """Compute capability via torch. None when torch is absent: CTranslate2 exposes
+    no capability query, so a torch-less CUDA host reports CUDA with an UNKNOWN
+    capability, and the registry routes it to Whisper-on-GPU (see transcriber)."""
     try:
         import torch  # type: ignore[import-not-found]
 

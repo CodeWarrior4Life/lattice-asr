@@ -34,7 +34,11 @@ MULTILINGUAL_MODEL_CPU = "medium"
 
 
 def _build_engine_registry(
-    hw: HardwareProfile, force: str | None
+    hw: HardwareProfile,
+    force: str | None,
+    *,
+    cpu_model: str | None = None,
+    cuda_model: str | None = None,
 ) -> dict[str, TranscriptionEngine]:
     """Build {language_route: engine}. Spec §5.
 
@@ -49,7 +53,9 @@ def _build_engine_registry(
             # Multilingual model even when forced: a caller asking for
             # "faster-whisper" wants Whisper, not an English-only distillation of it.
             engine = FasterWhisperEngine(
-                model=MULTILINGUAL_MODEL_CUDA if hw.nvidia_cuda else MULTILINGUAL_MODEL_CPU,
+                model=(cuda_model or MULTILINGUAL_MODEL_CUDA)
+                if hw.nvidia_cuda
+                else (cpu_model or MULTILINGUAL_MODEL_CPU),
                 device="cuda" if hw.nvidia_cuda else "cpu",
                 compute_type="float16" if hw.nvidia_cuda else "int8",
             )
@@ -94,9 +100,24 @@ def _build_engine_registry(
         return {
             "en": ParakeetTdtEngine(),
             "multi": FasterWhisperEngine(
-                model=MULTILINGUAL_MODEL_CUDA, device="cuda", compute_type="float16"
+                model=cuda_model or MULTILINGUAL_MODEL_CUDA, device="cuda", compute_type="float16"
             ),
         }
+
+    if hw.nvidia_cuda and hw.cuda_capability is None:
+        # CUDA seen through CTranslate2 with no torch (capability unknown), so no
+        # NeMo/Parakeet either: Whisper on the GPU serves every language.
+        # compute_type "default": CTranslate2 keeps float16 where the card supports
+        # it and converts itself otherwise; an explicit "float16" RAISES on cards
+        # without efficient fp16, and here we cannot check the capability first.
+        engine = FasterWhisperEngine(
+            model=cuda_model or MULTILINGUAL_MODEL_CUDA, device="cuda", compute_type="default"
+        )
+        return {"en": engine, "multi": engine}
+
+    if cpu_model:
+        engine = FasterWhisperEngine(model=cpu_model, device="cpu", compute_type="int8")
+        return {"en": engine, "multi": engine}
 
     # Two engines, not one shared instance: distil-large-v3 is fast and English-only,
     # so it can serve "en" but must not be what non-English audio lands on.
@@ -131,7 +152,10 @@ class Transcriber:
         self._enable_diarization = enable_diarization
         self._hardware = detect_hardware()
         self._engines = _build_engine_registry(
-            self._hardware, force_engine or self._config.hardware_force
+            self._hardware,
+            force_engine or self._config.hardware_force,
+            cpu_model=self._config.cpu_model,
+            cuda_model=self._config.cuda_model,
         )
         # Language detection is a capability OF AN ENGINE now, not a separate
         # model. Silero is gone (see lattice_asr.lid); whichever engine can
